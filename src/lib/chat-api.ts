@@ -56,8 +56,9 @@ export async function streamChat({ messages, settings, onDelta, onDone, onError 
 
         try {
           const parsed = JSON.parse(jsonStr);
-          const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) onDelta(text);
+          // OpenAI-compatible format: delta.content
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) onDelta(content);
         } catch {
           // partial JSON, skip
         }

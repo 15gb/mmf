@@ -12,9 +12,9 @@ serve(async (req) => {
   }
 
   try {
-    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
-    if (!GOOGLE_AI_API_KEY) {
-      throw new Error("GOOGLE_AI_API_KEY is not configured");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY is not configured");
     }
 
     const { messages, settings } = await req.json();
@@ -46,50 +46,40 @@ serve(async (req) => {
         ? systemParts.join("\n\n")
         : "너는 친절하고 재미있는 AI 캐릭터야. 자연스러운 한국어로 대화해줘.";
 
-    // Convert messages to Gemini format
-    const geminiContents = [];
-
-    // Add system instruction as first user/model pair
-    geminiContents.push({
-      role: "user",
-      parts: [{ text: `[시스템 지시사항]\n${systemPrompt}\n\n위 지시사항에 따라 캐릭터로서 대화해줘.` }],
-    });
-    geminiContents.push({
-      role: "model",
-      parts: [{ text: "네, 알겠습니다. 지시사항에 따라 캐릭터로서 대화하겠습니다." }],
-    });
-
-    // Add conversation history
-    for (const msg of messages) {
-      geminiContents.push({
-        role: msg.role === "user" ? "user" : "model",
-        parts: [{ text: msg.content }],
-      });
-    }
-
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${GOOGLE_AI_API_KEY}`,
+      "https://ai.gateway.lovable.dev/v1/chat/completions",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          contents: geminiContents,
-          generationConfig: {
-            temperature: 0.9,
-            maxOutputTokens: 2048,
-          },
+          model: "google/gemini-3-flash-preview",
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...messages,
+          ],
+          stream: true,
         }),
       }
     );
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Gemini API error:", response.status, errorText);
+      console.error("AI gateway error:", response.status, errorText);
 
       if (response.status === 429) {
         return new Response(
           JSON.stringify({ error: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (response.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "크레딧이 부족합니다. Lovable 설정에서 크레딧을 추가해주세요." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
@@ -99,7 +89,6 @@ serve(async (req) => {
       );
     }
 
-    // Stream the response back
     return new Response(response.body, {
       headers: {
         ...corsHeaders,
