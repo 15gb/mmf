@@ -15,6 +15,8 @@ export interface AppSettings {
   charGreeting: string;
   worldSetting: string;
   note: string;
+  charAvatar: string;
+  chatBackground: string;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -25,6 +27,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   charGreeting: "안녕! 만나서 반가워 😊",
   worldSetting: "",
   note: "",
+  charAvatar: "",
+  chatBackground: "",
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {
