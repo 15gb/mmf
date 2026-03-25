@@ -1,44 +1,70 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Send, Settings, Trash2 } from "lucide-react";
+import { Send, Settings, Trash2, Loader2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages } from "@/lib/store";
+import { streamChat } from "@/lib/chat-api";
+import { toast } from "sonner";
 
 const ChatPage = () => {
   const navigate = useNavigate();
   const { settings } = useSettings();
-  const { messages, addMessage, clearMessages } = useMessages();
+  const { messages, addMessage, clearMessages, updateLastAssistant } = useMessages();
   const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const charName = settings.charName || "AI 캐릭터";
 
-  // Auto-scroll to bottom
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  // Show greeting if no messages
   useEffect(() => {
     if (messages.length === 0 && settings.charGreeting) {
       addMessage({ role: "assistant", content: settings.charGreeting });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleSend = () => {
+  const handleSend = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed) return;
-    addMessage({ role: "user", content: trimmed });
-    setInput("");
+    if (!trimmed || isLoading) return;
 
-    // Simulate AI response (placeholder until API integration)
-    setTimeout(() => {
-      addMessage({
-        role: "assistant",
-        content: "아직 AI가 연결되지 않았어요. Lovable Cloud를 활성화하면 실제 AI 응답을 받을 수 있어요! 💬",
-      });
-    }, 800);
-  };
+    const userMsg = addMessage({ role: "user", content: trimmed });
+    setInput("");
+    setIsLoading(true);
+
+    // Prepare history (exclude greeting if it's the only assistant msg)
+    const history = [...messages, { role: "user" as const, content: trimmed, id: userMsg.id, timestamp: userMsg.timestamp }]
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    let assistantStarted = false;
+    let fullContent = "";
+
+    await streamChat({
+      messages: history,
+      settings,
+      onDelta: (text) => {
+        fullContent += text;
+        if (!assistantStarted) {
+          assistantStarted = true;
+          addMessage({ role: "assistant", content: fullContent });
+        } else {
+          updateLastAssistant(fullContent);
+        }
+      },
+      onDone: () => {
+        setIsLoading(false);
+      },
+      onError: (error) => {
+        setIsLoading(false);
+        toast.error(error);
+        if (!assistantStarted) {
+          addMessage({ role: "assistant", content: `⚠️ ${error}` });
+        }
+      },
+    });
+  }, [input, isLoading, messages, settings, addMessage, updateLastAssistant]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -49,7 +75,6 @@ const ChatPage = () => {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
-      {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
         <button
           onClick={() => navigate("/settings")}
@@ -80,7 +105,6 @@ const ChatPage = () => {
         </div>
       </header>
 
-      {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
         {messages.map((msg) => (
           <div
@@ -88,23 +112,34 @@ const ChatPage = () => {
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                 msg.role === "user"
-                  ? "bg-chat-mine text-chat-mine-foreground rounded-br-md"
+                  ? "bg-chat-mine text-chat-mine-foreground rounded-br-md whitespace-pre-wrap"
                   : "bg-chat-theirs text-chat-theirs-foreground rounded-bl-md"
               }`}
             >
-              {msg.content}
+              {msg.role === "assistant" ? (
+                <div className="prose prose-sm prose-invert max-w-none [&>p]:m-0 [&>p+p]:mt-2">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
+              ) : (
+                msg.content
+              )}
             </div>
           </div>
         ))}
+        {isLoading && messages[messages.length - 1]?.role === "user" && (
+          <div className="flex justify-start">
+            <div className="bg-chat-theirs text-chat-theirs-foreground rounded-2xl rounded-bl-md px-4 py-2.5">
+              <Loader2 size={16} className="animate-spin" />
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Input */}
       <div className="shrink-0 border-t border-border bg-card px-3 py-2 safe-area-bottom">
         <div className="flex items-end gap-2">
           <textarea
-            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -115,7 +150,7 @@ const ChatPage = () => {
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim()}
+            disabled={!input.trim() || isLoading}
             className="shrink-0 w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 transition-opacity active:scale-95"
           >
             <Send size={18} />
