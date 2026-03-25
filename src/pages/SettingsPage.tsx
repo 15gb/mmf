@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Save } from "lucide-react";
 import { useSettings, type AppSettings } from "@/lib/store";
 import { toast } from "sonner";
+import ImageUploadField from "@/components/ImageUploadField";
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
