@@ -127,6 +127,16 @@ const SettingsPage = () => {
           />
         </Section>
 
+        <Section title="채팅 배경">
+          <ImageUploadField
+            label="배경 이미지"
+            value={form.chatBackground}
+            onChange={(v) => update("chatBackground", v)}
+            hint="채팅 화면의 배경에 표시됩니다"
+            previewClass="w-32 h-20 rounded-lg"
+          />
+        </Section>
+
         <Section title="노트 (장기 기억)">
           <Field
             label="노트"
