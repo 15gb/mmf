@@ -80,9 +80,13 @@ const ChatPage = () => {
           onClick={() => navigate("/settings")}
           className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity"
         >
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
-            {charName[0]}
-          </div>
+          {settings.charAvatar ? (
+            <img src={settings.charAvatar} alt={charName} className="w-9 h-9 rounded-full object-cover" />
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
+              {charName[0]}
+            </div>
+          )}
           <div className="text-left">
             <p className="font-semibold text-sm leading-tight">{charName}</p>
             <p className="text-xs text-muted-foreground">설정하려면 탭하세요</p>
