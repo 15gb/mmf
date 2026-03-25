@@ -76,5 +76,15 @@ export function useMessages() {
     setMessagesState([]);
   }, []);
 
-  return { messages, addMessage, clearMessages };
+  const updateLastAssistant = useCallback((content: string) => {
+    setMessagesState((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.role === "assistant") {
+        return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content } : m));
+      }
+      return prev;
+    });
+  }, []);
+
+  return { messages, addMessage, clearMessages, updateLastAssistant };
 }
