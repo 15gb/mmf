@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Save } from "lucide-react";
 import { useSettings, type AppSettings } from "@/lib/store";
 import { toast } from "sonner";
+import ImageUploadField from "@/components/ImageUploadField";
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
@@ -93,6 +94,12 @@ const SettingsPage = () => {
         </Section>
 
         <Section title="AI 캐릭터 프로필">
+          <ImageUploadField
+            label="프로필 이미지"
+            value={form.charAvatar}
+            onChange={(v) => update("charAvatar", v)}
+            hint="2MB 이하 이미지 (원형으로 표시됩니다)"
+          />
           <Field label="캐릭터 이름" value={form.charName} onChange={(v) => update("charName", v)} placeholder="AI 캐릭터" />
           <Field
             label="성격 (페르소나)"
@@ -117,6 +124,16 @@ const SettingsPage = () => {
             onChange={(v) => update("worldSetting", v)}
             multiline
             placeholder="대화의 배경이 되는 장소, 시대, 상황 등을 적어주세요"
+          />
+        </Section>
+
+        <Section title="채팅 배경">
+          <ImageUploadField
+            label="배경 이미지"
+            value={form.chatBackground}
+            onChange={(v) => update("chatBackground", v)}
+            hint="채팅 화면의 배경에 표시됩니다"
+            previewClass="w-32 h-20 rounded-lg"
           />
         </Section>
 

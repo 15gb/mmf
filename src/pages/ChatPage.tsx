@@ -80,9 +80,13 @@ const ChatPage = () => {
           onClick={() => navigate("/settings")}
           className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity"
         >
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
-            {charName[0]}
-          </div>
+          {settings.charAvatar ? (
+            <img src={settings.charAvatar} alt={charName} className="w-9 h-9 rounded-full object-cover" />
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
+              {charName[0]}
+            </div>
+          )}
           <div className="text-left">
             <p className="font-semibold text-sm leading-tight">{charName}</p>
             <p className="text-xs text-muted-foreground">설정하려면 탭하세요</p>
@@ -105,14 +109,34 @@ const ChatPage = () => {
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-3 py-4 space-y-3 relative"
+        style={settings.chatBackground ? {
+          backgroundImage: `url(${settings.chatBackground})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        } : undefined}
+      >
+        {settings.chatBackground && (
+          <div className="absolute inset-0 bg-background/60 pointer-events-none" />
+        )}
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} relative z-10`}
           >
+            {msg.role === "assistant" && (
+              settings.charAvatar ? (
+                <img src={settings.charAvatar} alt={charName} className="w-7 h-7 rounded-full object-cover mr-2 mt-1 shrink-0" />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold mr-2 mt-1 shrink-0">
+                  {charName[0]}
+                </div>
+              )
+            )}
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+              className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                 msg.role === "user"
                   ? "bg-chat-mine text-chat-mine-foreground rounded-br-md whitespace-pre-wrap"
                   : "bg-chat-theirs text-chat-theirs-foreground rounded-bl-md"
@@ -129,7 +153,7 @@ const ChatPage = () => {
           </div>
         ))}
         {isLoading && messages[messages.length - 1]?.role === "user" && (
-          <div className="flex justify-start">
+          <div className="flex justify-start relative z-10">
             <div className="bg-chat-theirs text-chat-theirs-foreground rounded-2xl rounded-bl-md px-4 py-2.5">
               <Loader2 size={16} className="animate-spin" />
             </div>
