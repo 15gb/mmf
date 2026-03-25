@@ -94,6 +94,12 @@ const SettingsPage = () => {
         </Section>
 
         <Section title="AI 캐릭터 프로필">
+          <ImageUploadField
+            label="프로필 이미지"
+            value={form.charAvatar}
+            onChange={(v) => update("charAvatar", v)}
+            hint="2MB 이하 이미지 (원형으로 표시됩니다)"
+          />
           <Field label="캐릭터 이름" value={form.charName} onChange={(v) => update("charName", v)} placeholder="AI 캐릭터" />
           <Field
             label="성격 (페르소나)"
