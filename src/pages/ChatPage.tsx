@@ -109,7 +109,18 @@ const ChatPage = () => {
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-3 py-4 space-y-3 relative"
+        style={settings.chatBackground ? {
+          backgroundImage: `url(${settings.chatBackground})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        } : undefined}
+      >
+        {settings.chatBackground && (
+          <div className="absolute inset-0 bg-background/60 pointer-events-none" />
+        )}
         {messages.map((msg) => (
           <div
             key={msg.id}
