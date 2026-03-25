@@ -124,10 +124,19 @@ const ChatPage = () => {
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} relative z-10`}
           >
+            {msg.role === "assistant" && (
+              settings.charAvatar ? (
+                <img src={settings.charAvatar} alt={charName} className="w-7 h-7 rounded-full object-cover mr-2 mt-1 shrink-0" />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold mr-2 mt-1 shrink-0">
+                  {charName[0]}
+                </div>
+              )
+            )}
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+              className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                 msg.role === "user"
                   ? "bg-chat-mine text-chat-mine-foreground rounded-br-md whitespace-pre-wrap"
                   : "bg-chat-theirs text-chat-theirs-foreground rounded-bl-md"
@@ -144,7 +153,7 @@ const ChatPage = () => {
           </div>
         ))}
         {isLoading && messages[messages.length - 1]?.role === "user" && (
-          <div className="flex justify-start">
+          <div className="flex justify-start relative z-10">
             <div className="bg-chat-theirs text-chat-theirs-foreground rounded-2xl rounded-bl-md px-4 py-2.5">
               <Loader2 size={16} className="animate-spin" />
             </div>
