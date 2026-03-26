@@ -102,5 +102,5 @@ export function useMessages() {
     });
   }, []);
 
-  return { messages, addMessage, clearMessages, updateLastAssistant };
+  return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant };
 }
