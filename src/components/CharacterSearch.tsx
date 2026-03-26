@@ -21,9 +21,10 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
 
       if (error) throw error;
 
+      const persona = [data.persona, data.speech_style].filter(Boolean).join("\n\n[말투 및 대사 스타일]\n");
       onSelect({
         name: data.name || "",
-        persona: data.persona || "",
+        persona: persona || "",
         greeting: data.greeting || "",
         avatar: data.avatar || "",
       });

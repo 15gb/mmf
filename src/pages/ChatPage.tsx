@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { useSettings, useMessages } from "@/lib/store";
+import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
 import { toast } from "sonner";
 
@@ -10,14 +10,39 @@ const SPLIT_MARKER = "[[SPLIT]]";
 
 const ChatPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { settings } = useSettings();
-  const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant } = useMessages();
+  const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
+  const { conversations, saveConversation } = useConversations();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const charName = settings.charName || "AI 캐릭터";
+
+  // Handle URL params for loading/new conversations
+  useEffect(() => {
+    const loadId = searchParams.get("load");
+    const isNew = searchParams.get("new");
+
+    if (isNew) {
+      clearMessages();
+      setCurrentConvId(null);
+      setSearchParams({}, { replace: true });
+      return;
+    }
+
+    if (loadId) {
+      const conv = conversations.find((c) => c.id === loadId);
+      if (conv) {
+        loadMessages(conv.messages);
+        setCurrentConvId(conv.id);
+      }
+      setSearchParams({}, { replace: true });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -29,7 +54,6 @@ const ChatPage = () => {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Close context menu on outside click
   useEffect(() => {
     const handler = () => setContextMenu(null);
     if (contextMenu) {
@@ -37,6 +61,18 @@ const ChatPage = () => {
       return () => document.removeEventListener("click", handler);
     }
   }, [contextMenu]);
+
+  const handleSave = useCallback(() => {
+    if (messages.length === 0) {
+      toast.error("저장할 대화가 없습니다");
+      return;
+    }
+    const id = saveConversation(messages, currentConvId || undefined);
+    if (id) {
+      setCurrentConvId(id);
+      toast.success(currentConvId ? "대화가 업데이트되었습니다" : "대화가 저장되었습니다");
+    }
+  }, [messages, currentConvId, saveConversation]);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -66,13 +102,10 @@ const ChatPage = () => {
       },
       onDone: () => {
         setIsLoading(false);
-        // Split long messages into multiple bubbles
         if (fullContent.includes(SPLIT_MARKER)) {
           const parts = fullContent.split(SPLIT_MARKER).map(p => p.trim()).filter(Boolean);
           if (parts.length > 1) {
-            // Update the last assistant message with the first part
             updateLastAssistant(parts[0]);
-            // Add remaining parts as separate messages with slight delay
             for (let i = 1; i < parts.length; i++) {
               addMessage({ role: "assistant", content: parts[i] });
             }
@@ -122,7 +155,21 @@ const ChatPage = () => {
             <p className="text-xs text-muted-foreground">설정하려면 탭하세요</p>
           </div>
         </button>
-        <div className="flex gap-2">
+        <div className="flex gap-1">
+          <button
+            onClick={handleSave}
+            className="p-2 rounded-lg text-muted-foreground hover:text-primary transition-colors"
+            title="대화 저장"
+          >
+            <Save size={18} />
+          </button>
+          <button
+            onClick={() => navigate("/conversations")}
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
+            title="저장된 대화"
+          >
+            <List size={18} />
+          </button>
           <button
             onClick={clearMessages}
             className="p-2 rounded-lg text-muted-foreground hover:text-destructive transition-colors"
@@ -189,7 +236,6 @@ const ChatPage = () => {
         )}
       </div>
 
-      {/* Context menu for message actions */}
       {contextMenu && (
         <div
           className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]"

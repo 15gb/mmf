@@ -4,6 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
 import SettingsPage from "./pages/SettingsPage.tsx";
+import ConversationListPage from "./pages/ConversationListPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -16,6 +17,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/conversations" element={<ConversationListPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
