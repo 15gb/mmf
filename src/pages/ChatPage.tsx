@@ -1,17 +1,20 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2 } from "lucide-react";
+import { Send, Settings, Trash2, Loader2, X, Scissors } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
 import { toast } from "sonner";
 
+const SPLIT_MARKER = "[[SPLIT]]";
+
 const ChatPage = () => {
   const navigate = useNavigate();
   const { settings } = useSettings();
-  const { messages, addMessage, clearMessages, updateLastAssistant } = useMessages();
+  const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant } = useMessages();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const charName = settings.charName || "AI 캐릭터";
@@ -26,6 +29,15 @@ const ChatPage = () => {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Close context menu on outside click
+  useEffect(() => {
+    const handler = () => setContextMenu(null);
+    if (contextMenu) {
+      document.addEventListener("click", handler);
+      return () => document.removeEventListener("click", handler);
+    }
+  }, [contextMenu]);
+
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
@@ -34,7 +46,6 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // Prepare history (exclude greeting if it's the only assistant msg)
     const history = [...messages, { role: "user" as const, content: trimmed, id: userMsg.id, timestamp: userMsg.timestamp }]
       .map((m) => ({ role: m.role, content: m.content }));
 
@@ -55,6 +66,18 @@ const ChatPage = () => {
       },
       onDone: () => {
         setIsLoading(false);
+        // Split long messages into multiple bubbles
+        if (fullContent.includes(SPLIT_MARKER)) {
+          const parts = fullContent.split(SPLIT_MARKER).map(p => p.trim()).filter(Boolean);
+          if (parts.length > 1) {
+            // Update the last assistant message with the first part
+            updateLastAssistant(parts[0]);
+            // Add remaining parts as separate messages with slight delay
+            for (let i = 1; i < parts.length; i++) {
+              addMessage({ role: "assistant", content: parts[i] });
+            }
+          }
+        }
       },
       onError: (error) => {
         setIsLoading(false);
@@ -71,6 +94,13 @@ const ChatPage = () => {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
+    const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+    setContextMenu({ id, x: clientX, y: clientY });
   };
 
   return (
@@ -118,13 +148,11 @@ const ChatPage = () => {
           backgroundPosition: "center",
         } : undefined}
       >
-        {settings.chatBackground && (
-          <div className="absolute inset-0 bg-background/60 pointer-events-none" />
-        )}
         {messages.map((msg) => (
           <div
             key={msg.id}
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} relative z-10`}
+            onContextMenu={(e) => handleLongPress(msg.id, e)}
           >
             {msg.role === "assistant" && (
               settings.charAvatar ? (
@@ -160,6 +188,38 @@ const ChatPage = () => {
           </div>
         )}
       </div>
+
+      {/* Context menu for message actions */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors"
+            onClick={() => {
+              deleteMessage(contextMenu.id);
+              setContextMenu(null);
+              toast.success("메시지가 삭제되었습니다");
+            }}
+          >
+            <X size={14} />
+            이 메시지 삭제
+          </button>
+          <button
+            className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors"
+            onClick={() => {
+              deleteMessagesFrom(contextMenu.id);
+              setContextMenu(null);
+              toast.success("이 메시지 이전까지 삭제되었습니다");
+            }}
+          >
+            <Scissors size={14} />
+            여기까지 삭제
+          </button>
+        </div>
+      )}
 
       <div className="shrink-0 border-t border-border bg-card px-3 py-2 safe-area-bottom">
         <div className="flex items-end gap-2">

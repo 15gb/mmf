@@ -41,10 +41,13 @@ serve(async (req) => {
       systemParts.push(`[중요 노트 - 항상 기억하고 참고해야 할 내용]\n${settings.note}`);
     }
 
+    // Add response length instruction
+    systemParts.push(`[응답 규칙] 답변은 5줄 이내로 짧게 해줘. 만약 내용이 길어질 경우 "[[SPLIT]]" 구분자를 넣어서 메시지를 나눠줘. 각 파트는 5줄 이내로 유지해.`);
+
     const systemPrompt =
       systemParts.length > 0
         ? systemParts.join("\n\n")
-        : "너는 친절하고 재미있는 AI 캐릭터야. 자연스러운 한국어로 대화해줘.";
+        : "너는 친절하고 재미있는 AI 캐릭터야. 자연스러운 한국어로 대화해줘. 답변은 5줄 이내로 짧게 해줘.";
 
     const response = await fetch(
       "https://ai.gateway.lovable.dev/v1/chat/completions",

@@ -4,6 +4,7 @@ import { ArrowLeft, Save } from "lucide-react";
 import { useSettings, type AppSettings } from "@/lib/store";
 import { toast } from "sonner";
 import ImageUploadField from "@/components/ImageUploadField";
+import CharacterSearch from "@/components/CharacterSearch";
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
@@ -94,6 +95,18 @@ const SettingsPage = () => {
         </Section>
 
         <Section title="AI 캐릭터 프로필">
+          <CharacterSearch
+            onSelect={(data) => {
+              setForm((prev) => ({
+                ...prev,
+                charName: data.name || prev.charName,
+                charPersona: data.persona || prev.charPersona,
+                charGreeting: data.greeting || prev.charGreeting,
+                charAvatar: data.avatar || prev.charAvatar,
+              }));
+              toast.success("캐릭터 정보가 자동으로 채워졌습니다!");
+            }}
+          />
           <ImageUploadField
             label="프로필 이미지"
             value={form.charAvatar}
