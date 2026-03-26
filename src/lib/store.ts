@@ -80,6 +80,18 @@ export function useMessages() {
     setMessagesState([]);
   }, []);
 
+  const deleteMessage = useCallback((id: string) => {
+    setMessagesState((prev) => prev.filter((m) => m.id !== id));
+  }, []);
+
+  const deleteMessagesFrom = useCallback((id: string) => {
+    setMessagesState((prev) => {
+      const idx = prev.findIndex((m) => m.id === id);
+      if (idx === -1) return prev;
+      return prev.slice(0, idx);
+    });
+  }, []);
+
   const updateLastAssistant = useCallback((content: string) => {
     setMessagesState((prev) => {
       const last = prev[prev.length - 1];
