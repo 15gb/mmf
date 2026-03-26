@@ -19,6 +19,14 @@ export interface AppSettings {
   chatBackground: string;
 }
 
+export interface Conversation {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 const DEFAULT_SETTINGS: AppSettings = {
   myName: "",
   myIntro: "",
@@ -102,5 +110,52 @@ export function useMessages() {
     });
   }, []);
 
-  return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant };
+  const loadMessages = useCallback((msgs: ChatMessage[]) => {
+    setMessagesState(msgs);
+  }, []);
+
+  return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages };
+}
+
+export function useConversations() {
+  const [conversations, setConversationsState] = useState<Conversation[]>(() =>
+    loadFromStorage("saved-conversations", [])
+  );
+
+  useEffect(() => {
+    saveToStorage("saved-conversations", conversations);
+  }, [conversations]);
+
+  const saveConversation = useCallback((messages: ChatMessage[], existingId?: string) => {
+    if (messages.length === 0) return null;
+
+    const firstUserMsg = messages.find((m) => m.role === "user");
+    const title = firstUserMsg ? firstUserMsg.content.slice(0, 30) : "새 대화";
+    const now = Date.now();
+
+    if (existingId) {
+      setConversationsState((prev) =>
+        prev.map((c) =>
+          c.id === existingId ? { ...c, messages, title, updatedAt: now } : c
+        )
+      );
+      return existingId;
+    }
+
+    const newConv: Conversation = {
+      id: crypto.randomUUID(),
+      title,
+      messages,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setConversationsState((prev) => [newConv, ...prev]);
+    return newConv.id;
+  }, []);
+
+  const deleteConversation = useCallback((id: string) => {
+    setConversationsState((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  return { conversations, saveConversation, deleteConversation };
 }
