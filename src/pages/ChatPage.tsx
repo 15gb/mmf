@@ -113,30 +113,29 @@ const ChatPage = () => {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [messages, currentConvId, settings]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
       return;
     }
-    // If already saved to a slot, ask to overwrite or create new
     if (currentConvId) {
       setShowOverwriteDialog(true);
       return;
     }
-    const id = saveConversation(messages, undefined, settings);
+    const id = await saveConversation(messages, undefined, settings);
     if (id) {
       setCurrentConvId(id);
       toast.success("대화가 저장되었습니다");
     }
   }, [messages, currentConvId, saveConversation, settings]);
 
-  const handleOverwriteConfirm = useCallback((overwrite: boolean) => {
+  const handleOverwriteConfirm = useCallback(async (overwrite: boolean) => {
     setShowOverwriteDialog(false);
     if (overwrite) {
-      saveConversation(messages, currentConvId || undefined, settings);
+      await saveConversation(messages, currentConvId || undefined, settings);
       toast.success("대화가 업데이트되었습니다");
     } else {
-      const id = saveConversation(messages, undefined, settings);
+      const id = await saveConversation(messages, undefined, settings);
       if (id) {
         setCurrentConvId(id);
         toast.success("새 슬롯에 저장되었습니다");

@@ -14,7 +14,84 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      conversations: {
+        Row: {
+          created_at: string | null
+          id: string
+          messages: Json | null
+          settings: Json | null
+          title: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          messages?: Json | null
+          settings?: Json | null
+          title?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          messages?: Json | null
+          settings?: Json | null
+          title?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          char_avatar: string | null
+          char_greeting: string | null
+          char_name: string | null
+          char_persona: string | null
+          chat_background: string | null
+          created_at: string | null
+          id: string
+          my_intro: string | null
+          my_name: string | null
+          note: string | null
+          updated_at: string | null
+          user_id: string
+          world_setting: string | null
+        }
+        Insert: {
+          char_avatar?: string | null
+          char_greeting?: string | null
+          char_name?: string | null
+          char_persona?: string | null
+          chat_background?: string | null
+          created_at?: string | null
+          id?: string
+          my_intro?: string | null
+          my_name?: string | null
+          note?: string | null
+          updated_at?: string | null
+          user_id: string
+          world_setting?: string | null
+        }
+        Update: {
+          char_avatar?: string | null
+          char_greeting?: string | null
+          char_name?: string | null
+          char_persona?: string | null
+          chat_background?: string | null
+          created_at?: string | null
+          id?: string
+          my_intro?: string | null
+          my_name?: string | null
+          note?: string | null
+          updated_at?: string | null
+          user_id?: string
+          world_setting?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
