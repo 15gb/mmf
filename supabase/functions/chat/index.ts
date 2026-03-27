@@ -43,6 +43,7 @@ serve(async (req) => {
 
     // Add response length instruction
     systemParts.push(`[응답 규칙] 답변은 5줄 이내로 짧게 해줘. 만약 내용이 길어질 경우 "[[SPLIT]]" 구분자를 넣어서 메시지를 나눠줘. 각 파트는 5줄 이내로 유지해.`);
+    systemParts.push(`[자동 진행 규칙] 만약 상대방(유저)이 아무 말도 하지 않고 대화가 이어질 경우, 상황에 맞게 상대방(유저)의 행동이나 반응을 *이탤릭 나레이션*으로 자연스럽게 묘사한 뒤 그에 맞춰 대화를 이어가줘. 유저의 행동 묘사는 반드시 *별표*로 감싸서 나레이션임을 표시해줘. 예시: *${settings?.myName || "상대방"}은(는) 고개를 끄덕였다.* 그런 다음 캐릭터의 대사나 행동을 이어가줘.`);
 
     const systemPrompt =
       systemParts.length > 0
