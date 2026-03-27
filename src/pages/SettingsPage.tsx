@@ -92,6 +92,32 @@ const SettingsPage = () => {
 
       {/* Form */}
       <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
+        <Section title="계정">
+          {user ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">{user.email}</p>
+                <p className="text-xs text-muted-foreground">Google 계정으로 로그인됨</p>
+              </div>
+              <button
+                onClick={async () => {
+                  await signOut();
+                  toast.success("로그아웃 되었습니다");
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-foreground text-sm active:scale-95 transition-transform"
+              >
+                <LogOut size={14} />
+                로그아웃
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 py-2">
+              <p className="text-sm text-muted-foreground">로그인하면 설정과 대화가 클라우드에 저장됩니다</p>
+              <GoogleLoginButton />
+            </div>
+          )}
+        </Section>
+
         <Section title="내 프로필">
           <Field label="이름" value={form.myName} onChange={(v) => update("myName", v)} placeholder="내 이름" />
           <Field label="소개" value={form.myIntro} onChange={(v) => update("myIntro", v)} multiline placeholder="간단한 자기소개" />
