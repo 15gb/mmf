@@ -23,6 +23,7 @@ export interface Conversation {
   id: string;
   title: string;
   messages: ChatMessage[];
+  settings?: AppSettings;
   createdAt: number;
   updatedAt: number;
 }
@@ -126,7 +127,7 @@ export function useConversations() {
     saveToStorage("saved-conversations", conversations);
   }, [conversations]);
 
-  const saveConversation = useCallback((messages: ChatMessage[], existingId?: string) => {
+  const saveConversation = useCallback((messages: ChatMessage[], existingId?: string, settings?: AppSettings) => {
     if (messages.length === 0) return null;
 
     const firstUserMsg = messages.find((m) => m.role === "user");
@@ -136,7 +137,7 @@ export function useConversations() {
     if (existingId) {
       setConversationsState((prev) =>
         prev.map((c) =>
-          c.id === existingId ? { ...c, messages, title, updatedAt: now } : c
+          c.id === existingId ? { ...c, messages, title, settings: settings || c.settings, updatedAt: now } : c
         )
       );
       return existingId;
@@ -146,6 +147,7 @@ export function useConversations() {
       id: crypto.randomUUID(),
       title,
       messages,
+      settings,
       createdAt: now,
       updatedAt: now,
     };
