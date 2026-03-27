@@ -50,7 +50,27 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn("localStorage save failed:", key, e);
+    // If quota exceeded, try to free space by trimming old conversations
+    if (e instanceof DOMException && e.name === "QuotaExceededError") {
+      try {
+        const convs = JSON.parse(localStorage.getItem("saved-conversations") || "[]");
+        if (convs.length > 5) {
+          // Remove oldest conversations to free space
+          const trimmed = convs.slice(0, 5);
+          localStorage.setItem("saved-conversations", JSON.stringify(trimmed));
+          // Retry the original save
+          localStorage.setItem(key, JSON.stringify(value));
+        }
+      } catch {
+        // Last resort: clear saved conversations
+        localStorage.removeItem("saved-conversations");
+      }
+    }
+  }
 }
 
 export function useSettings() {
@@ -134,10 +154,17 @@ export function useConversations() {
     const title = firstUserMsg ? firstUserMsg.content.slice(0, 30) : "새 대화";
     const now = Date.now();
 
+    // Strip large Base64 data from settings snapshot to save storage space
+    const lightSettings = settings ? {
+      ...settings,
+      charAvatar: settings.charAvatar && settings.charAvatar.length > 500 ? "" : settings.charAvatar,
+      chatBackground: settings.chatBackground && settings.chatBackground.length > 500 ? "" : settings.chatBackground,
+    } : undefined;
+
     if (existingId) {
       setConversationsState((prev) =>
         prev.map((c) =>
-          c.id === existingId ? { ...c, messages, title, settings: settings || c.settings, updatedAt: now } : c
+          c.id === existingId ? { ...c, messages, title, settings: lightSettings || c.settings, updatedAt: now } : c
         )
       );
       return existingId;
@@ -147,7 +174,7 @@ export function useConversations() {
       id: crypto.randomUUID(),
       title,
       messages,
-      settings,
+      settings: lightSettings,
       createdAt: now,
       updatedAt: now,
     };
