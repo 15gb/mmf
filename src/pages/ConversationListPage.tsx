@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, MessageSquarePlus, Trash2, MessageCircle } from "lucide-react";
-import { useConversations } from "@/lib/store";
+import { useConversations, useSettings } from "@/lib/store";
 import { toast } from "sonner";
 
 const ConversationListPage = () => {
