@@ -23,6 +23,7 @@ export interface Conversation {
   id: string;
   title: string;
   messages: ChatMessage[];
+  settings?: AppSettings;
   createdAt: number;
   updatedAt: number;
 }
