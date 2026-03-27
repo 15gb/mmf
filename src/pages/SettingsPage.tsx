@@ -53,6 +53,7 @@ const Field = ({
 const SettingsPage = () => {
   const navigate = useNavigate();
   const { settings, setSettings } = useSettings();
+  const { user, signOut } = useAuth();
   const [form, setForm] = useState<AppSettings>(settings);
 
   useEffect(() => {
