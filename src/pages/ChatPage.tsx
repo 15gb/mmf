@@ -1,10 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List } from "lucide-react";
+import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
@@ -18,6 +27,7 @@ const ChatPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
+  const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const charName = settings.charName || "AI 캐릭터";
@@ -62,28 +72,87 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
+  // Auto-save on page unload
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (messages.length > 0) {
+        // Save directly to localStorage to ensure it persists
+        const convs = JSON.parse(localStorage.getItem("saved-conversations") || "[]");
+        const firstUserMsg = messages.find((m) => m.role === "user");
+        const title = firstUserMsg ? firstUserMsg.content.slice(0, 30) : "새 대화";
+        const now = Date.now();
+
+        if (currentConvId) {
+          const updated = convs.map((c: any) =>
+            c.id === currentConvId ? { ...c, messages, title, settings, updatedAt: now } : c
+          );
+          localStorage.setItem("saved-conversations", JSON.stringify(updated));
+        } else {
+          const newConv = {
+            id: crypto.randomUUID(),
+            title,
+            messages,
+            settings,
+            createdAt: now,
+            updatedAt: now,
+          };
+          localStorage.setItem("saved-conversations", JSON.stringify([newConv, ...convs]));
+        }
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [messages, currentConvId, settings]);
+
   const handleSave = useCallback(() => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
       return;
     }
-    const id = saveConversation(messages, currentConvId || undefined);
+    // If already saved to a slot, ask to overwrite or create new
+    if (currentConvId) {
+      setShowOverwriteDialog(true);
+      return;
+    }
+    const id = saveConversation(messages, undefined, settings);
     if (id) {
       setCurrentConvId(id);
-      toast.success(currentConvId ? "대화가 업데이트되었습니다" : "대화가 저장되었습니다");
+      toast.success("대화가 저장되었습니다");
     }
-  }, [messages, currentConvId, saveConversation]);
+  }, [messages, currentConvId, saveConversation, settings]);
 
-  const handleSend = useCallback(async () => {
-    const trimmed = input.trim();
-    if (!trimmed || isLoading) return;
+  const handleOverwriteConfirm = useCallback((overwrite: boolean) => {
+    setShowOverwriteDialog(false);
+    if (overwrite) {
+      saveConversation(messages, currentConvId || undefined, settings);
+      toast.success("대화가 업데이트되었습니다");
+    } else {
+      const id = saveConversation(messages, undefined, settings);
+      if (id) {
+        setCurrentConvId(id);
+        toast.success("새 슬롯에 저장되었습니다");
+      }
+    }
+  }, [messages, currentConvId, saveConversation, settings]);
 
-    const userMsg = addMessage({ role: "user", content: trimmed });
+  const handleSend = useCallback(async (overrideContent?: string) => {
+    const content = overrideContent !== undefined ? overrideContent : input.trim();
+    // Allow empty string (for auto-continue)
+    if (content === undefined || isLoading) return;
+
+    const isEmptyMessage = content === "";
+    
+    if (!isEmptyMessage) {
+      const userMsg = addMessage({ role: "user", content });
+    }
     setInput("");
     setIsLoading(true);
 
-    const history = [...messages, { role: "user" as const, content: trimmed, id: userMsg.id, timestamp: userMsg.timestamp }]
-      .map((m) => ({ role: m.role, content: m.content }));
+    const history = [
+      ...messages,
+      ...(!isEmptyMessage ? [{ role: "user" as const, content }] : []),
+    ].map((m) => ({ role: m.role, content: m.content }));
 
     let assistantStarted = false;
     let fullContent = "";
@@ -129,11 +198,40 @@ const ChatPage = () => {
     }
   };
 
+  const handleNarration = useCallback(() => {
+    if (isLoading) return;
+    const trimmed = input.trim();
+    const narrationText = trimmed ? `*${trimmed}*` : "";
+    if (narrationText) {
+      handleSend(narrationText);
+    } else {
+      // Empty narration = just add asterisks to input
+      setInput("**");
+    }
+  }, [input, isLoading, handleSend]);
+
   const handleLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
     const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
     setContextMenu({ id, x: clientX, y: clientY });
+  };
+
+  // Render message content - narration (*text*) gets special styling
+  const renderContent = (msg: { role: string; content: string }) => {
+    if (msg.role === "assistant") {
+      return (
+        <div className="prose prose-sm prose-invert max-w-none [&>p]:m-0 [&>p+p]:mt-2">
+          <ReactMarkdown>{msg.content}</ReactMarkdown>
+        </div>
+      );
+    }
+    // For user messages, check if it's narration (wrapped in *)
+    const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*") && msg.content.length > 2;
+    if (isNarration) {
+      return <span className="italic text-muted-foreground">{msg.content.slice(1, -1)}</span>;
+    }
+    return msg.content;
   };
 
   return (
@@ -156,31 +254,16 @@ const ChatPage = () => {
           </div>
         </button>
         <div className="flex gap-1">
-          <button
-            onClick={handleSave}
-            className="p-2 rounded-lg text-muted-foreground hover:text-primary transition-colors"
-            title="대화 저장"
-          >
+          <button onClick={handleSave} className="p-2 rounded-lg text-muted-foreground hover:text-primary transition-colors" title="대화 저장">
             <Save size={18} />
           </button>
-          <button
-            onClick={() => navigate("/conversations")}
-            className="p-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-            title="저장된 대화"
-          >
+          <button onClick={() => navigate("/conversations")} className="p-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors" title="저장된 대화">
             <List size={18} />
           </button>
-          <button
-            onClick={clearMessages}
-            className="p-2 rounded-lg text-muted-foreground hover:text-destructive transition-colors"
-            title="대화 초기화"
-          >
+          <button onClick={clearMessages} className="p-2 rounded-lg text-muted-foreground hover:text-destructive transition-colors" title="대화 초기화">
             <Trash2 size={18} />
           </button>
-          <button
-            onClick={() => navigate("/settings")}
-            className="p-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-          >
+          <button onClick={() => navigate("/settings")} className="p-2 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
             <Settings size={18} />
           </button>
         </div>
@@ -217,13 +300,7 @@ const ChatPage = () => {
                   : "bg-chat-theirs text-chat-theirs-foreground rounded-bl-md"
               }`}
             >
-              {msg.role === "assistant" ? (
-                <div className="prose prose-sm prose-invert max-w-none [&>p]:m-0 [&>p+p]:mt-2">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
-                </div>
-              ) : (
-                msg.content
-              )}
+              {renderContent(msg)}
             </div>
           </div>
         ))}
@@ -279,14 +356,42 @@ const ChatPage = () => {
             style={{ minHeight: "40px" }}
           />
           <button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading}
+            onClick={handleNarration}
+            disabled={isLoading}
+            className="shrink-0 w-10 h-10 rounded-full bg-accent text-accent-foreground flex items-center justify-center disabled:opacity-40 transition-opacity active:scale-95"
+            title="나레이션 (별표로 감싸서 전송)"
+          >
+            <Star size={18} />
+          </button>
+          <button
+            onClick={() => handleSend(input.trim() === "" ? "" : undefined)}
+            disabled={isLoading}
             className="shrink-0 w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 transition-opacity active:scale-95"
           >
             <Send size={18} />
           </button>
         </div>
       </div>
+
+      {/* Overwrite dialog */}
+      <Dialog open={showOverwriteDialog} onOpenChange={setShowOverwriteDialog}>
+        <DialogContent className="max-w-[320px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>대화 저장</DialogTitle>
+            <DialogDescription>
+              이미 저장된 대화입니다. 기존 슬롯을 덮어쓰시겠습니까?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-row gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => handleOverwriteConfirm(false)}>
+              새로 저장
+            </Button>
+            <Button className="flex-1" onClick={() => handleOverwriteConfirm(true)}>
+              덮어쓰기
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
