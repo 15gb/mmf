@@ -50,7 +50,27 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.warn("localStorage save failed:", key, e);
+    // If quota exceeded, try to free space by trimming old conversations
+    if (e instanceof DOMException && e.name === "QuotaExceededError") {
+      try {
+        const convs = JSON.parse(localStorage.getItem("saved-conversations") || "[]");
+        if (convs.length > 5) {
+          // Remove oldest conversations to free space
+          const trimmed = convs.slice(0, 5);
+          localStorage.setItem("saved-conversations", JSON.stringify(trimmed));
+          // Retry the original save
+          localStorage.setItem(key, JSON.stringify(value));
+        }
+      } catch {
+        // Last resort: clear saved conversations
+        localStorage.removeItem("saved-conversations");
+      }
+    }
+  }
 }
 
 export function useSettings() {
