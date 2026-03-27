@@ -6,6 +6,7 @@ import { toast } from "sonner";
 const ConversationListPage = () => {
   const navigate = useNavigate();
   const { conversations, deleteConversation } = useConversations();
+  const { setSettings } = useSettings();
 
   const formatDate = (ts: number) => {
     const d = new Date(ts);
