@@ -76,27 +76,35 @@ const ChatPage = () => {
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (messages.length > 0) {
-        // Save directly to localStorage to ensure it persists
-        const convs = JSON.parse(localStorage.getItem("saved-conversations") || "[]");
-        const firstUserMsg = messages.find((m) => m.role === "user");
-        const title = firstUserMsg ? firstUserMsg.content.slice(0, 30) : "새 대화";
-        const now = Date.now();
-
-        if (currentConvId) {
-          const updated = convs.map((c: any) =>
-            c.id === currentConvId ? { ...c, messages, title, settings, updatedAt: now } : c
-          );
-          localStorage.setItem("saved-conversations", JSON.stringify(updated));
-        } else {
-          const newConv = {
-            id: crypto.randomUUID(),
-            title,
-            messages,
-            settings,
-            createdAt: now,
-            updatedAt: now,
+        try {
+          const convs = JSON.parse(localStorage.getItem("saved-conversations") || "[]");
+          const firstUserMsg = messages.find((m) => m.role === "user");
+          const title = firstUserMsg ? firstUserMsg.content.slice(0, 30) : "새 대화";
+          const now = Date.now();
+          const lightSettings = {
+            ...settings,
+            charAvatar: settings.charAvatar && settings.charAvatar.length > 500 ? "" : settings.charAvatar,
+            chatBackground: settings.chatBackground && settings.chatBackground.length > 500 ? "" : settings.chatBackground,
           };
-          localStorage.setItem("saved-conversations", JSON.stringify([newConv, ...convs]));
+
+          if (currentConvId) {
+            const updated = convs.map((c: any) =>
+              c.id === currentConvId ? { ...c, messages, title, settings: lightSettings, updatedAt: now } : c
+            );
+            localStorage.setItem("saved-conversations", JSON.stringify(updated));
+          } else {
+            const newConv = {
+              id: crypto.randomUUID(),
+              title,
+              messages,
+              settings: lightSettings,
+              createdAt: now,
+              updatedAt: now,
+            };
+            localStorage.setItem("saved-conversations", JSON.stringify([newConv, ...convs]));
+          }
+        } catch (e) {
+          console.warn("Auto-save failed:", e);
         }
       }
     };
