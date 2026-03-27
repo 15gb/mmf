@@ -154,10 +154,17 @@ export function useConversations() {
     const title = firstUserMsg ? firstUserMsg.content.slice(0, 30) : "새 대화";
     const now = Date.now();
 
+    // Strip large Base64 data from settings snapshot to save storage space
+    const lightSettings = settings ? {
+      ...settings,
+      charAvatar: settings.charAvatar && settings.charAvatar.length > 500 ? "" : settings.charAvatar,
+      chatBackground: settings.chatBackground && settings.chatBackground.length > 500 ? "" : settings.chatBackground,
+    } : undefined;
+
     if (existingId) {
       setConversationsState((prev) =>
         prev.map((c) =>
-          c.id === existingId ? { ...c, messages, title, settings: settings || c.settings, updatedAt: now } : c
+          c.id === existingId ? { ...c, messages, title, settings: lightSettings || c.settings, updatedAt: now } : c
         )
       );
       return existingId;
@@ -167,7 +174,7 @@ export function useConversations() {
       id: crypto.randomUUID(),
       title,
       messages,
-      settings,
+      settings: lightSettings,
       createdAt: now,
       updatedAt: now,
     };
