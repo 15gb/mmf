@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, LogOut } from "lucide-react";
 import { useSettings, type AppSettings } from "@/lib/store";
+import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 import ImageUploadField from "@/components/ImageUploadField";
 import CharacterSearch from "@/components/CharacterSearch";
+import GoogleLoginButton from "@/components/GoogleLoginButton";
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
