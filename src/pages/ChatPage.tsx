@@ -229,7 +229,7 @@ const ChatPage = () => {
   const renderContent = (msg: { role: string; content: string }) => {
     if (msg.role === "assistant") {
       return (
-        <div className="prose prose-sm prose-invert max-w-none [&>p]:m-0 [&>p+p]:mt-2">
+        <div className="prose prose-sm prose-invert max-w-none [&>p]:m-0 [&>p+p]:mt-2 [&_em]:not-italic [&_em]:text-muted-foreground">
           <ReactMarkdown>{msg.content}</ReactMarkdown>
         </div>
       );
