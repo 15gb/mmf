@@ -41,7 +41,10 @@ const ConversationListPage = () => {
               <div
                 key={conv.id}
                 className="flex items-center gap-3 px-4 py-3 active:bg-muted/50 transition-colors cursor-pointer"
-                onClick={() => navigate(`/?load=${conv.id}`)}
+                onClick={() => {
+                  if (conv.settings) setSettings(conv.settings);
+                  navigate(`/?load=${conv.id}`);
+                }}
               >
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{conv.title}</p>
