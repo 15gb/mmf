@@ -64,6 +64,7 @@ const Field = ({
 const SettingsPage = () => {
   const navigate = useNavigate();
   const { settings, setSettings } = useSettings();
+  const { conversations, deleteConversation } = useConversations();
   const { user, signOut } = useAuth();
   const [form, setForm] = useState<AppSettings>(settings);
 
