@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star } from "lucide-react";
+import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
 import { toast } from "sonner";
+import { generateImage } from "@/lib/comfyui-api";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +27,7 @@ const ChatPage = () => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -217,6 +219,54 @@ const ChatPage = () => {
     }
   }, [input, isLoading, handleSend]);
 
+  const handleGenerateImage = useCallback(async () => {
+    if (isLoading || isGeneratingImage) return;
+    if (messages.length === 0) {
+      toast.error("대화 내용이 없어 이미지를 생성할 수 없습니다");
+      return;
+    }
+
+    setIsGeneratingImage(true);
+    const toastId = toast.loading("이미지 생성 중...");
+
+    try {
+      const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      const { imageUrl, prompt } = await generateImage(
+        history,
+        settings,
+        (status) => toast.loading(status, { id: toastId }),
+      );
+
+      // Fetch image and convert to base64 for display in chat
+      const imgResp = await fetch(imageUrl);
+      if (!imgResp.ok) throw new Error("이미지 다운로드 실패");
+      const blob = await imgResp.blob();
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+
+      // Add image as assistant message with markdown
+      addMessage({
+        role: "assistant",
+        content: `![생성된 이미지](${base64})\n\n*생성 프롬프트: ${prompt}*`,
+      });
+
+      toast.success("이미지가 생성되었습니다!", { id: toastId });
+    } catch (e) {
+      console.error("Image generation error:", e);
+      const errorMsg = e instanceof Error ? e.message : "이미지 생성 실패";
+      toast.error(errorMsg, { id: toastId });
+      
+      if (errorMsg.includes("ComfyUI") || errorMsg.includes("fetch")) {
+        toast.error("ComfyUI가 실행 중인지 확인해주세요 (localhost:8188)");
+      }
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
+
   const handleLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
@@ -369,6 +419,14 @@ const ChatPage = () => {
             title="나레이션 (별표로 감싸서 전송)"
           >
             <Star size={18} />
+          </button>
+          <button
+            onClick={handleGenerateImage}
+            disabled={isLoading || isGeneratingImage}
+            className="shrink-0 w-10 h-10 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center disabled:opacity-40 transition-opacity active:scale-95"
+            title="현재 상황 이미지 생성 (ComfyUI)"
+          >
+            {isGeneratingImage ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
           </button>
           <button
             onClick={() => handleSend(input.trim() === "" ? "" : undefined)}
