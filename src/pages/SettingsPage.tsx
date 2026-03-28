@@ -203,6 +203,49 @@ const SettingsPage = () => {
             💡 여기에 적은 내용은 AI에게 보내는 모든 요청에 시스템 프롬프트로 포함됩니다.
           </p>
         </Section>
+        <Section title="데이터 관리">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">저장된 대화 삭제</p>
+                <p className="text-xs text-muted-foreground">저장된 대화 {conversations.length}개를 모두 삭제합니다</p>
+              </div>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    disabled={conversations.length === 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium active:scale-95 transition-transform disabled:opacity-40"
+                  >
+                    <Trash2 size={14} />
+                    삭제
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>저장된 대화를 모두 삭제할까요?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      이 작업은 되돌릴 수 없습니다. 저장된 대화 {conversations.length}개가 영구적으로 삭제됩니다.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>취소</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={async () => {
+                        for (const conv of conversations) {
+                          await deleteConversation(conv.id);
+                        }
+                        toast.success("저장된 대화가 모두 삭제되었습니다");
+                      }}
+                    >
+                      삭제
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+        </Section>
       </div>
     </div>
   );
