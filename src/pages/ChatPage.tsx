@@ -27,6 +27,7 @@ const ChatPage = () => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
