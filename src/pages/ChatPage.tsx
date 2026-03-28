@@ -219,6 +219,54 @@ const ChatPage = () => {
     }
   }, [input, isLoading, handleSend]);
 
+  const handleGenerateImage = useCallback(async () => {
+    if (isLoading || isGeneratingImage) return;
+    if (messages.length === 0) {
+      toast.error("대화 내용이 없어 이미지를 생성할 수 없습니다");
+      return;
+    }
+
+    setIsGeneratingImage(true);
+    const toastId = toast.loading("이미지 생성 중...");
+
+    try {
+      const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      const { imageUrl, prompt } = await generateImage(
+        history,
+        settings,
+        (status) => toast.loading(status, { id: toastId }),
+      );
+
+      // Fetch image and convert to base64 for display in chat
+      const imgResp = await fetch(imageUrl);
+      if (!imgResp.ok) throw new Error("이미지 다운로드 실패");
+      const blob = await imgResp.blob();
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+
+      // Add image as assistant message with markdown
+      addMessage({
+        role: "assistant",
+        content: `![생성된 이미지](${base64})\n\n*생성 프롬프트: ${prompt}*`,
+      });
+
+      toast.success("이미지가 생성되었습니다!", { id: toastId });
+    } catch (e) {
+      console.error("Image generation error:", e);
+      const errorMsg = e instanceof Error ? e.message : "이미지 생성 실패";
+      toast.error(errorMsg, { id: toastId });
+      
+      if (errorMsg.includes("ComfyUI") || errorMsg.includes("fetch")) {
+        toast.error("ComfyUI가 실행 중인지 확인해주세요 (localhost:8188)");
+      }
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
+
   const handleLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
