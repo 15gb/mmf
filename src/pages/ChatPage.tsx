@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star } from "lucide-react";
+import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
