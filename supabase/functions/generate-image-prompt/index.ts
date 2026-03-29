@@ -19,7 +19,7 @@ serve(async (req) => {
 
     const { messages, settings } = await req.json();
 
-    const systemPrompt = `You are an expert at generating Stable Diffusion / NovelAI image prompts.
+    const systemPrompt = `You are an expert at generating high-quality image prompts for Pollinations.ai (Flux model).
 Based on the conversation context and character settings, generate a detailed English image prompt that captures the current scene, mood, and character appearance.
 
 Character info:
@@ -28,14 +28,16 @@ Character info:
 - World setting: ${settings?.worldSetting || "N/A"}
 
 Rules:
-1. Output ONLY the English prompt text, nothing else.
+1. Output ONLY the prompt text on a SINGLE LINE. No newlines, no quotes, no markdown.
 2. Include character appearance details (hair, eyes, clothing, pose, expression).
 3. Include scene/background details based on conversation context.
-4. Include mood/atmosphere tags.
+4. Include mood/atmosphere tags and cinematic lighting descriptions.
 5. Use comma-separated tags in danbooru/booru style.
-6. Keep it under 200 words.
+6. Keep it under 150 words.
 7. Do NOT include negative prompts.
-8. Focus on the CURRENT moment in the conversation.`;
+8. Focus on the CURRENT moment in the conversation.
+9. Add quality boosters: masterpiece, best quality, highly detailed, cinematic lighting, sparkling background.
+10. End the prompt with: (Art style of Project Moon, Library of Ruina, dark fantasy, washed out colors:1.2)`;
 
     // Get last few messages for context
     const recentMessages = (messages || []).slice(-10);
