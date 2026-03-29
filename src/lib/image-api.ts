@@ -1,6 +1,7 @@
 import type { AppSettings } from "./store";
 
 const PROMPT_GEN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-image-prompt`;
+const POLLINATIONS_API_KEY = "sk_UHjSVdoCaZpsyXS5N77bYrQt3j4BqaYO";
 
 /** Sanitize prompt: remove newlines, special chars, collapse to single line */
 function sanitizePrompt(prompt: string): string {
@@ -12,14 +13,9 @@ function sanitizePrompt(prompt: string): string {
 }
 
 /** Generate a Pollinations.ai image URL from a prompt */
-export function generatePollinationsUrl(prompt: string, useFlux = true): string {
+export function generatePollinationsUrl(prompt: string): string {
   const clean = sanitizePrompt(prompt);
-  const seed = Math.floor(Math.random() * 1000000);
-  let url = `https://pollinations.ai/p/${encodeURIComponent(clean)}?width=1024&height=1024&seed=${seed}`;
-  if (useFlux) {
-    url += `&model=flux&nologo=true`;
-  }
-  return url;
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(clean)}?api_key=${POLLINATIONS_API_KEY}&width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&model=flux&nologo=true`;
 }
 
 /** Generate an English prompt from conversation context via edge function */
@@ -45,16 +41,14 @@ export async function generateImagePrompt(
   return data.prompt;
 }
 
-/** Preload image with retry: on failure, retry with new seed; on second failure try without flux */
+/** Preload image with retry */
 function preloadImage(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     let attempt = 0;
 
     function tryLoad() {
       attempt++;
-      // 1st & 2nd attempt: with flux. 3rd attempt: without flux.
-      const useFlux = attempt <= 2;
-      const url = generatePollinationsUrl(prompt, useFlux);
+      const url = generatePollinationsUrl(prompt);
 
       const img = new Image();
       img.crossOrigin = "anonymous";
@@ -80,7 +74,7 @@ export async function generateImage(
   settings: AppSettings,
   onStatus?: (status: string) => void,
 ): Promise<{ imageUrl: string; prompt: string }> {
-  onStatus?.("프롬프트 생성 중...");
+  onStatus?.("문맥을 분석하여 이미지를 그리고 있습니다...");
 
   const prompt = await generateImagePrompt(messages, settings);
 
@@ -89,4 +83,20 @@ export async function generateImage(
   const imageUrl = await preloadImage(prompt);
 
   return { imageUrl, prompt };
+}
+
+/** Helper: encode image data into a special message format */
+export function encodeImageMessage(url: string, prompt: string): string {
+  return `__IMG__${JSON.stringify({ url, prompt })}__IMG__`;
+}
+
+/** Helper: decode image message, returns null if not an image message */
+export function decodeImageMessage(content: string): { url: string; prompt: string } | null {
+  const match = content.match(/^__IMG__(.+)__IMG__$/s);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
 }

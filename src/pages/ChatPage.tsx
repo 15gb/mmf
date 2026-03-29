@@ -5,7 +5,8 @@ import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
 import { toast } from "sonner";
-import { generateImage } from "@/lib/image-api";
+import { generateImage, encodeImageMessage, decodeImageMessage } from "@/lib/image-api";
+import ImageCard from "@/components/ImageCard";
 import {
   Dialog,
   DialogContent,
@@ -239,7 +240,7 @@ const ChatPage = () => {
 
       addMessage({
         role: "assistant",
-        content: `![생성된 이미지](${imageUrl})\n\n*생성 프롬프트: ${prompt}*`,
+        content: encodeImageMessage(imageUrl, prompt),
       });
 
       toast.success("이미지가 생성되었습니다!", { id: toastId });
@@ -261,6 +262,12 @@ const ChatPage = () => {
 
   // Render message content - narration (*text*) gets special styling
   const renderContent = (msg: { role: string; content: string }) => {
+    // Check for image message
+    const imgData = decodeImageMessage(msg.content);
+    if (imgData) {
+      return <ImageCard url={imgData.url} prompt={imgData.prompt} />;
+    }
+
     if (msg.role === "assistant") {
       return (
         <div className="prose prose-sm prose-invert max-w-none [&>p]:m-0 [&>p+p]:mt-2 [&_em]:not-italic [&_em]:text-muted-foreground">
@@ -268,7 +275,6 @@ const ChatPage = () => {
         </div>
       );
     }
-    // For user messages, check if it's narration (wrapped in *)
     const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*") && msg.content.length > 2;
     if (isNarration) {
       return <span className="italic text-muted-foreground">{msg.content.slice(1, -1)}</span>;
