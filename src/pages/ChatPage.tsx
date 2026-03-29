@@ -240,7 +240,7 @@ const ChatPage = () => {
 
       addMessage({
         role: "assistant",
-        content: `![생성된 이미지](${imageUrl})\n\n*생성 프롬프트: ${prompt}*`,
+        content: encodeImageMessage(imageUrl, prompt),
       });
 
       toast.success("이미지가 생성되었습니다!", { id: toastId });
