@@ -5,7 +5,8 @@ import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
 import { toast } from "sonner";
-import { generateImage } from "@/lib/image-api";
+import { generateImage, encodeImageMessage, decodeImageMessage } from "@/lib/image-api";
+import ImageCard from "@/components/ImageCard";
 import {
   Dialog,
   DialogContent,
