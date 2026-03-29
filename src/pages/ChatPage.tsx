@@ -409,7 +409,7 @@ const ChatPage = () => {
             onClick={handleGenerateImage}
             disabled={isLoading || isGeneratingImage}
             className="shrink-0 w-10 h-10 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center disabled:opacity-40 transition-opacity active:scale-95"
-            title="현재 상황 이미지 생성 (ComfyUI)"
+            title="현재 상황 이미지 생성 (Pollinations.ai)"
           >
             {isGeneratingImage ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
           </button>
