@@ -262,6 +262,12 @@ const ChatPage = () => {
 
   // Render message content - narration (*text*) gets special styling
   const renderContent = (msg: { role: string; content: string }) => {
+    // Check for image message
+    const imgData = decodeImageMessage(msg.content);
+    if (imgData) {
+      return <ImageCard url={imgData.url} prompt={imgData.prompt} />;
+    }
+
     if (msg.role === "assistant") {
       return (
         <div className="prose prose-sm prose-invert max-w-none [&>p]:m-0 [&>p+p]:mt-2 [&_em]:not-italic [&_em]:text-muted-foreground">
@@ -269,7 +275,6 @@ const ChatPage = () => {
         </div>
       );
     }
-    // For user messages, check if it's narration (wrapped in *)
     const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*") && msg.content.length > 2;
     if (isNarration) {
       return <span className="italic text-muted-foreground">{msg.content.slice(1, -1)}</span>;
