@@ -8,15 +8,6 @@ import { generateUUID } from "@/lib/utils";
 import { toast } from "sonner";
 import { generateImage, encodeImageMessage, decodeImageMessage } from "@/lib/image-api";
 import ImageCard from "@/components/ImageCard";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
@@ -25,7 +16,7 @@ const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { settings } = useSettings();
   const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
-  const { conversations, saveConversation, autoSaveConversation, deleteConversation } = useConversations();
+  const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -33,20 +24,20 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 최신 상태 유지 (자동저장용)
+  // 최신 상태 참조 (자동저장 및 로직용)
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
-  const currentConvIdRef = useRef(currentConvId);
+  const allConvsRef = useRef(allConversations);
 
   useEffect(() => {
     messagesRef.current = messages;
     settingsRef.current = settings;
-    currentConvIdRef.current = currentConvId;
-  }, [messages, settings, currentConvId]);
+    allConvsRef.current = allConversations;
+  }, [messages, settings, allConversations]);
 
   const charName = settings.charName || "AI 캐릭터";
 
-  // URL 파라미터 로딩 로직
+  // URL 파라미터 로딩
   useEffect(() => {
     const loadId = searchParams.get("load");
     const isNew = searchParams.get("new");
@@ -55,14 +46,14 @@ const ChatPage = () => {
       setCurrentConvId(null);
       setSearchParams({}, { replace: true });
     } else if (loadId) {
-      const conv = conversations.find((c) => c.id === loadId);
+      const conv = allConversations.find((c) => c.id === loadId);
       if (conv) {
         loadMessages(conv.messages);
         setCurrentConvId(conv.id);
       }
       setSearchParams({}, { replace: true });
     }
-  }, [conversations, searchParams, setSearchParams, clearMessages, loadMessages]);
+  }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -74,7 +65,7 @@ const ChatPage = () => {
     }
   }, [settings.charGreeting, addMessage, messages.length]);
 
-  /** 🚪 [자동저장] 나갈 때 1~5번 슬롯에 저장 */
+  /** 🚪 [자동저장] 나갈 때 1~5번 슬롯 로테이션 */
   useEffect(() => {
     const handleExitSave = () => {
       if (messagesRef.current.length > 0) {
@@ -89,29 +80,49 @@ const ChatPage = () => {
   }, [autoSaveConversation]);
 
   const getDefaultSaveTitle = useCallback(() => {
-    const name = (settings.charName || "").trim();
-    return (name || "새 대화").slice(0, 30);
+    return (settings.charName || "새 대화").trim().slice(0, 30);
   }, [settings.charName]);
 
-  /** 💾 [수동저장] 버튼 클릭 시 현재 슬롯 업데이트 또는 새 저장 */
+  /** 💾 [수동저장 복구] 캐릭터명 저장 + 중복 확인 로직 */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
       return;
     }
 
-    const title = getDefaultSaveTitle();
+    const currentTitle = getDefaultSaveTitle();
     
-    // 현재 대화 중인 ID가 있으면 덮어쓰기, 없으면 새로 저장
-    const id = await saveConversation(messages, { 
-      existingId: currentConvId || undefined, 
-      title: title, 
-      settings 
-    });
+    // 1. 이미 이 대화 슬롯(ID)이 있으면 업데이트
+    if (currentConvId) {
+      await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings });
+      toast.success("대화 내용이 업데이트되었습니다");
+      return;
+    }
 
-    if (id) {
-      setCurrentConvId(id);
-      toast.success(currentConvId ? "기존 대화에 덮어쓰기 완료!" : "새 대화 목록에 저장 완료!");
+    // 2. ID는 없지만 목록에 동일한 제목(캐릭터명)이 있는지 확인
+    const sameTitleConv = allConvsRef.current.find(c => c.title === currentTitle);
+
+    if (sameTitleConv) {
+      const overwrite = window.confirm(`"${currentTitle}" 이름으로 저장된 대화가 이미 있습니다. 덮어쓰시겠습니까?`);
+      if (overwrite) {
+        await saveConversation(messages, { existingId: sameTitleConv.id, title: currentTitle, settings });
+        setCurrentConvId(sameTitleConv.id);
+        toast.success("기존 슬롯에 덮어쓰기 완료!");
+      } else {
+        const newTitle = window.prompt("새로운 제목을 입력해주세요:", `${currentTitle} (새)`);
+        if (newTitle) {
+          const id = await saveConversation(messages, { title: newTitle, settings });
+          if (id) setCurrentConvId(id);
+          toast.success("새 슬롯에 저장되었습니다");
+        }
+      }
+    } else {
+      // 3. 중복 없음 - 새로 저장
+      const id = await saveConversation(messages, { title: currentTitle, settings });
+      if (id) {
+        setCurrentConvId(id);
+        toast.success("대화가 저장되었습니다");
+      }
     }
   }, [messages, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
 
@@ -125,17 +136,14 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    const systemPrompt = `당신은 "${settings.charName}"를 연기하는 작가입니다.
+    const systemPrompt = `너는 "${settings.charName}"를 연기하는 작가이다.
 성격: ${settings.charPersona}
 세계관: ${settings.worldSetting}
-유저이름: ${settings.myName}
-노트: ${settings.note}
-
-[규칙]
-1. 행동/환경 묘사는 반드시 별표(*)로 감싸세요.
-2. 대사는 반드시 따옴표("")를 사용하세요.
-3. 응답은 최소 5줄 이상 풍부하게 작성하세요.
-4. 장면이 길어질 때만 "${SPLIT_MARKER}"를 넣으세요.`;
+[지침]
+1. 행동/환경 묘사(나레이션)는 반드시 별표(*)로 감싸라.
+2. 대화문은 반드시 따옴표("")를 사용하라.
+3. 응답은 상황을 풍부하게 묘사하여 **최소 5줄 이상**으로 길게 작성하라.
+4. 하나의 응답에 풍부한 장면 묘사를 담아라.`;
 
     const history = messages.slice(-10).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     const combinedPrompt = `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
@@ -182,17 +190,17 @@ const ChatPage = () => {
   const handleSummonCharacter = useCallback(() => {
     if (isLoading) return;
     const charList = (settings.supportingCharacters || []).map(c => `- ${c.name}: ${c.persona}`).join("\n");
-    handleSend(`[SYSTEM] 조연 등장 요청:\n${charList}`);
+    handleSend(`[SYSTEM] 조연 등장:\n${charList}`);
   }, [isLoading, handleSend, settings.supportingCharacters]);
 
   const handleGenerateImage = useCallback(async () => {
     if (isLoading || isGeneratingImage) return;
     setIsGeneratingImage(true);
-    const toastId = toast.loading("장면 분석 중...");
+    const toastId = toast.loading("분석 중...");
     try {
       const { imageUrl, prompt } = await generateImage(messages, settings, (status) => toast.loading(status, { id: toastId }));
       addMessage({ role: "assistant", content: encodeImageMessage(imageUrl, prompt) });
-      toast.success("이미지가 생성되었습니다!", { id: toastId });
+      toast.success("이미지 생성 완료!", { id: toastId });
     } catch (e: any) {
       toast.error(e.message, { id: toastId });
     } finally {
@@ -227,7 +235,7 @@ const ChatPage = () => {
           </div>
           <div className="text-left">
             <p className="font-semibold text-sm leading-tight">{charName}</p>
-            <p className="text-xs text-muted-foreground">설정창 이동</p>
+            <p className="text-xs text-muted-foreground">설정창</p>
           </div>
         </button>
         <div className="flex gap-1 text-muted-foreground">
@@ -241,13 +249,21 @@ const ChatPage = () => {
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-4" style={settings.chatBackground ? { backgroundImage: `url(${settings.chatBackground})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} relative z-10`} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ id: msg.id, x: e.clientX, y: e.clientY }); }}>
             <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-br-none" : "bg-card border border-border rounded-bl-none text-foreground"}`}>
               {renderContent(msg)}
             </div>
           </div>
         ))}
+        {isLoading && <Loader2 className="animate-spin text-muted-foreground" size={20} />}
       </div>
+
+      {contextMenu && (
+        <div className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={() => setContextMenu(null)}>
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted" onClick={() => deleteMessage(contextMenu.id)}><X size={14} /> 삭제</button>
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted" onClick={() => deleteMessagesFrom(contextMenu.id)}><Scissors size={14} /> 여기까지 삭제</button>
+        </div>
+      )}
 
       <div className="shrink-0 border-t border-border bg-card px-3 py-3 safe-area-bottom">
         <div className="flex items-end gap-2">
@@ -259,9 +275,9 @@ const ChatPage = () => {
             rows={1}
             className="flex-1 resize-none rounded-2xl bg-muted px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 max-h-32"
           />
-          <button onClick={handleNarration} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-accent transition-all active:scale-90"><Star size={18} /></button>
-          <button onClick={handleSummonCharacter} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-secondary transition-all active:scale-90"><Users size={18} /></button>
-          <button onClick={() => handleSend()} disabled={isLoading || (!input.trim())} className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 transition-all active:scale-95"><Send size={18} /></button>
+          <button onClick={handleNarration} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-accent active:scale-90"><Star size={18} /></button>
+          <button onClick={handleSummonCharacter} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-secondary active:scale-90"><Users size={18} /></button>
+          <button onClick={() => handleSend()} disabled={isLoading || (!input.trim())} className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 active:scale-95"><Send size={18} /></button>
         </div>
       </div>
     </div>

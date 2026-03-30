@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { generateUUID } from "./utils";
 
-// --- Interfaces ---
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -41,7 +40,6 @@ export interface Conversation {
   updatedAt: number;
 }
 
-// --- Constants & Utils ---
 const DEFAULT_SETTINGS: AppSettings = {
   myName: "",
   myIntro: "",
@@ -100,9 +98,6 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
   };
 }
 
-// --- Hooks ---
-
-/** 1. 설정 관리 훅 */
 export function useSettings() {
   const { user } = useAuth();
   const [settings, setSettingsState] = useState<AppSettings>(() =>
@@ -146,7 +141,6 @@ export function useSettings() {
   return { settings, setSettings };
 }
 
-/** 2. 메시지 관리 훅 */
 export function useMessages() {
   const [messages, setMessagesState] = useState<ChatMessage[]>(() => loadFromStorage("chat-messages", []));
   useEffect(() => { saveToStorage("chat-messages", messages); }, [messages]);
@@ -161,20 +155,22 @@ export function useMessages() {
     messages, 
     addMessage, 
     clearMessages: () => setMessagesState([]),
-    loadMessages: (msgs: ChatMessage[]) => setMessagesState(msgs),
+    deleteMessage: (id: string) => setMessagesState(prev => prev.filter(m => m.id !== id)),
+    deleteMessagesFrom: (id: string) => setMessagesState(prev => {
+      const idx = prev.findIndex(m => m.id === id);
+      return idx === -1 ? prev : prev.slice(0, idx);
+    }),
     updateLastAssistant: (content: string) => setMessagesState(prev => {
       const last = prev[prev.length - 1];
       return last?.role === "assistant" ? prev.map((m, i) => i === prev.length - 1 ? { ...m, content } : m) : prev;
-    })
+    }),
+    loadMessages: (msgs: ChatMessage[]) => setMessagesState(msgs)
   };
 }
 
-/** 3. 대화 목록 관리 훅 (자동저장 & 필터링 통합) */
 export function useConversations() {
   const { user } = useAuth();
   const [conversations, setConversationsState] = useState<Conversation[]>(() => loadFromStorage("saved-conversations", []));
-  
-  // ⭐ 자동저장 숨기기 상태 (기본값: 보임)
   const [showAutoSaves, setShowAutoSavesState] = useState(() => loadFromStorage("show-auto-saves", true));
 
   const setShowAutoSaves = useCallback((val: boolean) => {
@@ -206,46 +202,36 @@ export function useConversations() {
   const saveConversation = useCallback(async (messages: ChatMessage[], options: { existingId?: string, title?: string, settings?: AppSettings }) => {
     if (messages.length === 0) return null;
     const now = Date.now();
-    const newTitle = options.title || messages.find(m => m.role === "user")?.content.slice(0, 30) || "새 대화";
-
-    // 용량 최적화 (이미지 문자열 제거)
-    const lightSettings = options.settings ? {
-      ...options.settings,
-      charAvatar: (options.settings.charAvatar?.length || 0) > 500 ? "" : options.settings.charAvatar,
-      chatBackground: (options.settings.chatBackground?.length || 0) > 500 ? "" : options.settings.chatBackground,
-    } : undefined;
+    const newTitle = options.title || "새 대화";
 
     if (options.existingId) {
       setConversationsState(prev => prev.map(c => c.id === options.existingId ? { ...c, messages, title: newTitle, updatedAt: now } : c));
       if (user) {
-        await supabase.from("conversations").update({ messages, title: newTitle, settings: lightSettings as any, updated_at: new Date().toISOString() }).eq("id", options.existingId);
+        await supabase.from("conversations").update({ messages, title: newTitle, updated_at: new Date().toISOString() }).eq("id", options.existingId);
       }
       return options.existingId;
     }
 
     const newId = generateUUID();
-    const newConv = { id: newId, title: newTitle, messages, settings: lightSettings, createdAt: now, updatedAt: now };
+    const newConv = { id: newId, title: newTitle, messages, settings: options.settings, createdAt: now, updatedAt: now };
     setConversationsState(prev => [newConv, ...prev]);
     if (user) {
-      await supabase.from("conversations").insert({ id: newId, user_id: user.id, title: newTitle, messages, settings: lightSettings as any });
+      await supabase.from("conversations").insert({ id: newId, user_id: user.id, title: newTitle, messages, settings: options.settings });
     }
     return newId;
   }, [user]);
 
-  /** 🔄 자동 저장 로테이션 (1~5번) */
   const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
     if (messages.length === 0) return;
-    const firstMsg = messages.find(m => m.role === "user")?.content || "";
-    const baseTitle = firstMsg.slice(0, 15) || "대화";
-
-    const currentIdx = parseInt(localStorage.getItem("auto-save-idx") || "0");
-    const nextIdx = currentIdx >= 5 ? 1 : currentIdx + 1;
-    localStorage.setItem("auto-save-idx", nextIdx.toString());
+    const baseTitle = settings.charName || "대화";
+    const lastIdx = parseInt(localStorage.getItem("auto-save-counter") || "0");
+    const nextIdx = lastIdx >= 5 ? 1 : lastIdx + 1;
+    localStorage.setItem("auto-save-counter", nextIdx.toString());
 
     const autoTitle = `${baseTitle} - 자동저장(${nextIdx})`;
-    const existingSlot = conversations.find(c => c.title.includes(`자동저장(${nextIdx})`));
+    const existing = conversations.find(c => c.title === autoTitle);
 
-    await saveConversation(messages, { existingId: existingSlot?.id, title: autoTitle, settings });
+    await saveConversation(messages, { existingId: existing?.id, title: autoTitle, settings });
   }, [conversations, saveConversation]);
 
   const deleteConversation = useCallback(async (id: string) => {
@@ -253,14 +239,13 @@ export function useConversations() {
     if (user) await supabase.from("conversations").delete().eq("id", id);
   }, [user]);
 
-  // ⭐ 필터링 처리 (UI에서 사용할 목록)
   const filteredConversations = useMemo(() => {
     return conversations.filter(c => showAutoSaves ? true : !c.title.includes("- 자동저장("));
   }, [conversations, showAutoSaves]);
 
   return { 
-    conversations: filteredConversations, // 화면 표시용
-    allConversations: conversations,      // 전체 데이터 (삭제용)
+    conversations: filteredConversations, 
+    allConversations: conversations,
     saveConversation, 
     autoSaveConversation, 
     deleteConversation,
