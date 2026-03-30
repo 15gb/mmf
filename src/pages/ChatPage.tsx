@@ -77,13 +77,9 @@ const ChatPage = () => {
   }, [contextMenu]);
 
   const getDefaultSaveTitle = useCallback(() => {
-    const greeting = (settings.charGreeting || "").trim();
-    const firstLine = greeting
-      .split("\n")
-      .map((l) => l.trim())
-      .find(Boolean);
-    return (firstLine || "새 대화").slice(0, 30);
-  }, [settings.charGreeting]);
+    const name = (settings.charName || "").trim();
+    return (name || "새 대화").slice(0, 30);
+  }, [settings.charName]);
 
   // Auto-save on page unload
   useEffect(() => {

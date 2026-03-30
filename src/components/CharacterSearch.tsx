@@ -20,24 +20,65 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
       const data = await searchCharacter(query.trim());
 
       const persona = [data.persona, data.speech_style].filter(Boolean).join("\n\n[말투 및 대사 스타일]\n");
-      
-      // ORB 에러 및 로딩 실패를 방지하기 위해 항상 Pollinations.ai로 고정 생성
-      // 인터넷 이미지는 사이트마다 차단 정책이 달라 안정성이 떨어짐
       let avatarUrl = "";
-      
       try {
         const avatarData = JSON.parse(data.avatar);
         const description = avatarData.description || "";
-        
-        console.log("Generating high-quality avatar via Pollinations.ai...");
-        // 캐릭터의 특징을 최대한 반영하여 고화질 애니메이션 스타일로 생성
-        const prompt = `masterpiece, high quality, anime style, close up portrait, ${data.name}, ${description || "official art"}`;
-        avatarUrl = generatePollinationsUrl(prompt);
-        
-        console.log("Avatar URL generated:", avatarUrl);
-      } catch (e) {
-        // 파싱 실패 시 이름을 기반으로 생성
-        console.warn("Fallback to name-based generation");
+        const urls: string[] = Array.isArray(avatarData.urls) ? avatarData.urls : [];
+
+        const tryUrls = async (list: string[]): Promise<string | null> => {
+          let idx = 0;
+          return new Promise((resolve) => {
+            const next = () => {
+              if (idx >= list.length) {
+                resolve(null);
+                return;
+              }
+              const testUrl = list[idx++];
+              const img = new Image();
+              let done = false;
+              const cleanup = () => {
+                if (img) {
+                  img.onload = null;
+                  img.onerror = null;
+                }
+              };
+              const timer = setTimeout(() => {
+                if (!done) {
+                  cleanup();
+                  next();
+                }
+              }, 3000);
+              img.onload = () => {
+                if (!done) {
+                  done = true;
+                  clearTimeout(timer);
+                  cleanup();
+                  resolve(testUrl);
+                }
+              };
+              img.onerror = () => {
+                if (!done) {
+                  done = true;
+                  clearTimeout(timer);
+                  cleanup();
+                  next();
+                }
+              };
+              img.src = testUrl;
+            };
+            next();
+          });
+        };
+
+        const working = urls.length > 0 ? await tryUrls(urls) : null;
+        if (working) {
+          avatarUrl = working;
+        } else {
+          const prompt = `masterpiece, high quality, anime style, close up portrait, ${data.name}, ${description || "official art"}`;
+          avatarUrl = generatePollinationsUrl(prompt);
+        }
+      } catch {
         avatarUrl = generatePollinationsUrl(`masterpiece, high quality, anime style, close up portrait, ${data.name}`);
       }
 
