@@ -1,3 +1,9 @@
+네, 제가 코드를 다시 정리하면서 의도치 않게 생략된 로직들을 모두 원상 복구하고, 요청하신 **답변 길이 축소(절반 수준)**와 toastId 오류 수정까지 완벽하게 반영한 src/pages/ChatPage.tsx 전체 코드입니다.
+
+원본 코드의 모든 세부 로직(컨텍스트 메뉴, URL 로딩, 중복 확인 등)을 하나도 빠짐없이 유지했습니다.
+
+🛠️ src/pages/ChatPage.tsx (원본 로직 보존 + 요청 기능 최종 통합본)
+TypeScript
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users } from "lucide-react";
@@ -30,7 +36,7 @@ const ChatPage = () => {
 
   const charName = settings.charName || "AI 캐릭터";
 
-  // 1. URL 파라미터 로딩 (원본 로직 유지)
+  // URL 파라미터 로딩 (원본 로직 보존)
   useEffect(() => {
     const loadId = searchParams.get("load");
     if (searchParams.get("new")) {
@@ -54,7 +60,7 @@ const ChatPage = () => {
     }
   }, [settings.charGreeting, addMessage, messages.length]);
 
-  // 2. 우클릭 메뉴 닫기 핸들러 (원본 로직 유지)
+  // 우클릭 메뉴 닫기 핸들러 (원본 로직 보존)
   useEffect(() => {
     const handler = () => setContextMenu(null);
     if (contextMenu) {
@@ -63,7 +69,7 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
-  // 3. 페이지 나갈 때 자동 저장 (원본 로직 유지)
+  // 페이지 나갈 때 자동 저장
   useEffect(() => {
     const handleExit = () => { if (msgRef.current.length > 0) autoSaveConversation(msgRef.current, setRef.current); };
     window.addEventListener("beforeunload", handleExit);
@@ -72,7 +78,7 @@ const ChatPage = () => {
 
   const getDefaultSaveTitle = useCallback(() => (settings.charName || "새 대화").trim().slice(0, 30), [settings.charName]);
 
-  /** 💾 수동 저장 (원본 로직 유지) */
+  /** 💾 수동 저장 (원본 중복 확인 로직 보존) */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) { toast.error("저장할 대화가 없습니다"); return; }
     const currentTitle = getDefaultSaveTitle();
@@ -104,19 +110,16 @@ const ChatPage = () => {
     }
   }, [messages, allConversations, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
 
-  /** 🚀 전송 핸들러 (내 캐릭터 대행 지침 + 길이 최적화 적용) */
+  /** 🚀 전송 핸들러 (나 대신 행동하는 AI + 답변 길이 절반 축소 반영) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
     
-    // 내용 결정: 자동진행/엑스트라면 공백, 아니면 입력값
     const content = (isAuto || isSummon) ? "" : (overrideContent !== undefined ? overrideContent : input.trim());
     
-    // 일반 전송인데 내용이 없으면 중단 (자동진행 버튼이나 엔터 공백 전송은 허용)
     if (!isAuto && !isSummon && content === "" && overrideContent === undefined) return;
     if (isLoading) return;
 
-    // 유저 메시지 표시 (시스템 명령이나 공백 진행이 아닐 때만)
     if (!content.startsWith("[SYSTEM]") && content !== "" && !isAuto && !isSummon) {
       addMessage({ role: "user", content });
     }
@@ -124,20 +127,20 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 시스템 프롬프트 구성 (황금 밸런스 길이 + 내 캐릭터 대행 지침)
+    // 시스템 프롬프트: 답변 길이를 기존의 절반(1~2문단)으로 줄이고 나 대신 행동하는 지침 강화
     let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 유저(나): ${settings.myName}
 
 [응답 규칙]
-1. 모든 행동과 환경 묘사(나레이션)는 반드시 별표(*)로 감싸라. (예: *너를 보며 고개를 끄덕인다*)
+1. 모든 행동과 환경 묘사는 반드시 별표(*)로 감싸라.
 2. 캐릭터의 대사는 반드시 따옴표("")를 사용하라.
-3. 답변 길이: 핵심적인 장면과 묘사 위주로 **보통 3~4문단 정도**로 구성하라. (너무 장황하지 않게 기존보다 압축)
-4. 나레이션 텍스트는 유저와 구분되도록 별표 처리를 철저히 하라.`;
+3. 🌟답변 길이: 모바일 가독성을 위해 **핵심 장면 위주로 아주 간결하게 1~2문단 정도**로만 답변하라.
+4. 불필요하게 장황한 묘사는 생략하고 임팩트 있는 대사와 행동 위주로 구성하라.`;
 
     if (isAuto) {
-      systemPrompt += `\n[특수 지침: 자동 진행] 유저(나)의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 작성하여 이야기를 이어가라. 유저의 행동 이후에 반응하는 "${settings.charName}"의 모습까지 한꺼번에 한 블록에 담아라.`;
+      systemPrompt += `\n[특수 지침: 자동 진행] 유저(나)의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 작성하여 이야기를 이어가라. 유저의 행동 이후에 반응하는 "${settings.charName}"의 모습까지 한꺼번에 짧고 간결하게 한 블록에 담아라.`;
     } else if (isSummon) {
-      systemPrompt += `\n[특수 지침: 엑스트라 소환] 현재 상황에 어울리는 새로운 조연(엑스트라)을 반드시 등장시켜라. 이름은 네가 맥락에 맞게 정하고, 그 인물의 입장에서 대화와 행동을 풍부하게 묘사하라.`;
+      systemPrompt += `\n[특수 지침: 엑스트라 소환] 현재 상황에 어울리는 새로운 조연(엑스트라)을 반드시 등장시켜라. 이름은 맥락에 맞게 네가 정하고, 그 인물의 입장에서 짧게 대화와 행동을 묘사하라.`;
     }
 
     const history = messages.slice(-10).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
@@ -179,19 +182,23 @@ const ChatPage = () => {
 
   const handleSummonCharacter = useCallback(() => {
     if (isLoading) return;
-    // 엑스트라 소환 명령 전송
     handleSend("[SUMMON_EXTRA]");
   }, [isLoading, handleSend]);
 
+  /** 🎨 이미지 생성 (tid 오류 수정 완료) */
   const handleGenerateImage = useCallback(async () => {
     if (isLoading || isGeneratingImage) return;
     setIsGeneratingImage(true);
     const toastId = toast.loading("분석 중...");
     try {
-      const { imageUrl, prompt } = await generateImage(messages, settings, (status) => toast.loading(status, { id: tid }));
+      const { imageUrl, prompt } = await generateImage(messages, settings, (status) => toast.loading(status, { id: toastId }));
       addMessage({ role: "assistant", content: encodeImageMessage(imageUrl, prompt) });
       toast.success("이미지 생성 완료!", { id: toastId });
-    } catch (e: any) { toast.error(e.message, { id: toastId }); } finally { setIsGeneratingImage(false); }
+    } catch (e: any) { 
+      toast.error(e.message, { id: toastId }); 
+    } finally { 
+      setIsGeneratingImage(false); 
+    }
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
   const renderContent = (msg: { role: string; content: string }) => {
@@ -208,7 +215,6 @@ const ChatPage = () => {
       );
     }
     
-    // 유저 나레이션 처리 (원본 스타일 유지)
     const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*") && msg.content.length > 2;
     if (isNarration) {
       return <span className="italic text-muted-foreground/80">{msg.content.slice(1, -1)}</span>;
@@ -260,7 +266,6 @@ const ChatPage = () => {
         style={settings.chatBackground ? { backgroundImage: `url(${settings.chatBackground})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
       >
         {messages.map((msg) => {
-          // 엑스트라 판별 (볼드체 이름이 앞에 오거나 메인 캐릭터 이름이 없는 경우)
           const isExtra = msg.role === "assistant" && (msg.content.trim().startsWith("**") || !msg.content.includes(settings.charName));
           
           return (
@@ -269,13 +274,12 @@ const ChatPage = () => {
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} relative z-10`}
               onContextMenu={(e) => { e.preventDefault(); setContextMenu({ id: msg.id, x: e.clientX, y: e.clientY }); }}
             >
-              {/* 메인 캐릭터 대화일 때만 아바타 노출 (엑스트라는 공백) */}
               {msg.role === "assistant" && !isExtra && (
                  <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-[10px] text-primary-foreground font-bold mr-2 mt-1 shrink-0">
                    {settings.charAvatar ? <img src={settings.charAvatar} className="w-full h-full rounded-full object-cover" alt="avatar" /> : charName[0]}
                  </div>
               )}
-              {isExtra && <div className="w-9" />} {/* 엑스트라용 아바타 공간 비우기 */}
+              {isExtra && <div className="w-9" />}
               
               <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                 msg.role === "user" 
@@ -310,7 +314,6 @@ const ChatPage = () => {
           <textarea 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
-            // 🌟 엔터(공백) 전송 시 [AUTO] 진행 로직 적용
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSend(input.trim() === "" ? "[AUTO]" : undefined))} 
             placeholder="메시지..." 
             rows={1} 
@@ -323,7 +326,6 @@ const ChatPage = () => {
           >
             <Star size={18} />
           </button>
-          {/* 🌟 엑스트라 소환 버튼 */}
           <button 
             onClick={handleSummonCharacter} 
             className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-secondary active:scale-90 transition-all"
