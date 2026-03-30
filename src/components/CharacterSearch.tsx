@@ -77,21 +77,88 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
         if (working) {
           avatarUrl = working; // already proxied
         } else {
-          // Fallback to Wikipedia thumbnail (no AI, public content)
-          const queryWiki = async (host: "en" | "ko"): Promise<string | null> => {
-            const apiUrl = `https://${host}.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&pithumbsize=512&titles=${encodeURIComponent(data.name)}`;
+          // Fallback to Wikipedia thumbnail (character-only heuristic) → then Lexica (SD search) → then Waifu.pics
+          const queryWikiByTitle = async (host: "en" | "ko", title: string): Promise<string | null> => {
+            const apiUrl = `https://${host}.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&pithumbsize=512&titles=${encodeURIComponent(title)}`;
             const jsonResp = await fetch(`/api/json-proxy?url=${encodeURIComponent(apiUrl)}`);
             if (!jsonResp.ok) return null;
             const json = await jsonResp.json();
             const pages = json?.query?.pages || {};
             const pageId = Object.keys(pages)[0];
-            const thumb = pageId ? pages[pageId]?.thumbnail?.source : null;
-            return thumb ? toProxy(thumb) : null;
+            const page = pageId ? pages[pageId] : null;
+            if (!page || !page.thumbnail?.source) return null;
+            const t = page.title?.toLowerCase() || "";
+            // Heuristic: avoid series pages
+            if (/\b만화\b|\bmanga\b|\banime\b|\bseries\b|\bfilm\b|\btv\b|\bfranchise\b/.test(t)) return null;
+            return toProxy(page.thumbnail.source);
           };
-          avatarUrl = (await queryWiki("en")) || (await queryWiki("ko")) || "";
+          const queryWikiBySearch = async (host: "en" | "ko", q: string): Promise<string | null> => {
+            const apiUrl = `https://${host}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(q)}&format=json`;
+            const jsonResp = await fetch(`/api/json-proxy?url=${encodeURIComponent(apiUrl)}`);
+            if (!jsonResp.ok) return null;
+            const json = await jsonResp.json();
+            const first = json?.query?.search?.[0]?.title as string | undefined;
+            if (!first) return null;
+            return queryWikiByTitle(host, first);
+          };
+          const queryLexica = async (q: string): Promise<string | null> => {
+            const apiUrl = `https://lexica.art/api/v1/search?q=${encodeURIComponent(q)}`;
+            const jsonResp = await fetch(`/api/json-proxy?url=${encodeURIComponent(apiUrl)}`);
+            if (!jsonResp.ok) return null;
+            const json = await jsonResp.json();
+            const img = json?.images?.[0];
+            const url = img?.src || img?.srcSmall || null;
+            return url ? toProxy(url) : null;
+          };
+          const queryWaifu = async (): Promise<string | null> => {
+            const apiUrl = `https://api.waifu.pics/sfw/waifu`;
+            const jsonResp = await fetch(`/api/json-proxy?url=${encodeURIComponent(apiUrl)}`);
+            if (!jsonResp.ok) return null;
+            const json = await jsonResp.json();
+            const url = json?.url || null;
+            return url ? toProxy(url) : null;
+          };
+          const candidates: string[] = [];
+          const baseName = (data.name || "").trim();
+          if (baseName) {
+            candidates.push(baseName);
+            candidates.push(`${baseName} (캐릭터)`);
+            candidates.push(`${baseName} 캐릭터`);
+          }
+          // Special-case common mononyms
+          if (/나루토/i.test(baseName)) {
+            candidates.push("우즈마키 나루토");
+            candidates.push("Naruto Uzumaki");
+          }
+          // Try exact title first (ko -> en)
+          let found: string | null = null;
+          for (const t of candidates) {
+            found = (await queryWikiByTitle("ko", t)) || (await queryWikiByTitle("en", t));
+            if (found) break;
+          }
+          // Try search API with character keywords
+          if (!found) {
+            const searchQs = [
+              `${baseName} 캐릭터`,
+              `${baseName} (character)`,
+              baseName,
+            ].filter(Boolean);
+            for (const sq of searchQs) {
+              found = (await queryWikiBySearch("ko", sq)) || (await queryWikiBySearch("en", sq));
+              if (found) break;
+            }
+          }
+          // Try Lexica (Stable Diffusion gallery) as non-Pollinations AI source
+          if (!found && baseName) {
+            found = (await queryLexica(`${baseName} anime character portrait`)) || null;
+          }
+          // Last resort: generic anime image provider
+          if (!found) {
+            found = await queryWaifu();
+          }
+          avatarUrl = found || "";
           if (!avatarUrl) {
-            // As a last resort, keep empty to let UI fallback handle it gracefully
-            console.warn("No usable image found via Wikipedia.");
+            console.warn("No usable character image found via Wikipedia for:", baseName);
           }
         }
       } catch {
