@@ -1,11 +1,10 @@
 import { useApiKeyStore } from './api-key-store';
 import type { AppSettings } from "./store";
 
-// 1. Vercel 배포 시에는 Ngrok 주소를, 로컬 테스트 시에는 127.0.0.1을 사용합니다.
 const FORGE_BASE_URL = import.meta.env.VITE_FORGE_API_URL || "http://127.0.0.1:7860";
 const POLLINATIONS_API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY || "";
 
-/** [필수 1] ImageCard.tsx 에러 방지용 함수 */
+/** [필수 1] 에러 방지용 */
 export function generatePollinationsUrl(prompt: string): string {
   const clean = prompt.replace(/[][{}()*#@!]/g, "").replace(/\s{2,}/g, " ").trim();
   const encodedPrompt = encodeURIComponent(clean);
@@ -13,9 +12,10 @@ export function generatePollinationsUrl(prompt: string): string {
   return `https://gen.pollinations.ai/image/${encodedPrompt}?model=flux&width=1024&height=1024&seed=${seed}&enhance=false&key=${POLLINATIONS_API_KEY}`;
 }
 
-/** [도우미] 캐릭터 설정 추출 */
+/** [필수 2] 캐릭터 프로필(외형) 추출 */
 function getVisualDescription(settings: AppSettings): string {
   try {
+    // 프로필 설정에 저장된 외형 묘사 데이터를 가져옵니다.
     const avatarData = JSON.parse(settings.charAvatar);
     return avatarData.description || settings.charName;
   } catch {
@@ -23,7 +23,7 @@ function getVisualDescription(settings: AppSettings): string {
   }
 }
 
-/** [필수 2] Gemini 프롬프트 생성 */
+/** [핵심] 맥락 분석 및 프롬프트 생성 함수 */
 export async function generateImagePrompt(
   messages: { role: string; content: string }[],
   settings: AppSettings
@@ -35,19 +35,37 @@ export async function generateImagePrompt(
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
     const visualRef = getVisualDescription(settings);
     
-    const systemPrompt = `Masterpiece anime prompt engineer for "AbyssOrangeMix2". 
-Character: ${settings.charName} (${visualRef})
-Identity: ${settings.charPersona}
-Style: (abyssorangemix:1.2), masterpiece, best quality, highres, vibrant colors.
-Task: Create high-quality English tags for the current scene. No explanations.`;
+    // ⭐ Gemini를 위한 초정밀 지침 (맥락 파악 + 가중치 부여)
+    const systemPrompt = `You are a Scene Analyst & Image Prompt Engineer for "AbyssOrangeMix2".
+Your goal is to capture the EXACT CURRENT MOMENT of the conversation.
 
-    const history = messages.slice(-5).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
+[STEP 1: Character Appearance (The Foundation)]
+- Base visual: ${visualRef}
+- Character Identity: ${settings.charPersona}
+- You MUST maintain this character's consistency (hair, eyes, specific clothes).
+
+[STEP 2: Context Analysis (The Scene)]
+- You will be given the last 5 messages of the conversation.
+- Carefully observe the transition of the scene.
+- CRITICAL: The VERY LAST MESSAGE has the HIGHEST WEIGHT. It represents the immediate action, expression, and emotion to be drawn.
+
+[STEP 3: Output Format]
+- Output ONLY English tags (comma-separated).
+- Always include: masterpiece, best quality, (abyssorangemix:1.2), highly detailed, vibrant.
+- Focus on: [Character], [Current Action], [Specific Expression], [Current Background/Atmosphere].
+- Max 60 words. No chat or explanations.`;
+
+    // 💡 최근 5개의 대화만 정교하게 슬라이싱하여 순서대로 전달
+    const contextHistory = messages.slice(-5).map((m, idx) => {
+      const weightLabel = (idx === 4) ? " [CRITICAL: CURRENT SCENE]" : "";
+      return `${m.role === "assistant" ? "AI" : "User"}: ${m.content}${weightLabel}`;
+    }).join("\n");
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `${systemPrompt}\n\nChat Context:\n${history}\n\nGenerate Tags:` }] }],
+        contents: [{ parts: [{ text: `${systemPrompt}\n\n[CONVERSATION CONTEXT (Last 5 messages)]\n${contextHistory}\n\nGenerate Final Prompt Tags:` }] }],
         safetySettings: [{ category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }],
       }),
     });
@@ -64,49 +82,46 @@ Task: Create high-quality English tags for the current scene. No explanations.`;
   return makeRequest(apiKey);
 }
 
-/** [필수 3] 로컬 Forge 연동 (Vercel 대응 업데이트) */
+/** [필수 3] 로컬 Forge 연동 */
 async function generateForgeImage(prompt: string): Promise<string> {
   const response = await fetch(`${FORGE_BASE_URL}/sdapi/v1/txt2img`, {
     method: "POST",
     headers: { 
       "Content-Type": "application/json",
-      // ⭐ [중요] Ngrok의 'Browser Warning' 페이지를 강제로 건너뛰게 하는 헤더입니다.
-      // 이 줄이 없으면 Vercel에서 요청을 보낼 때 Ngrok이 연결을 차단합니다.
       "ngrok-skip-browser-warning": "69420"
     },
     body: JSON.stringify({
       prompt: prompt,
-      negative_prompt: "nsfw, (low quality, worst quality:1.4), bad anatomy, bad hands, text, watermark, error",
-      steps: 25,
-      cfg_scale: 7.5,
+      negative_prompt: "nsfw, (low quality, worst quality:1.4), bad anatomy, bad hands, text, watermark, error, blurry",
+      steps: 28,
+      cfg_scale: 8.0,
       width: 512,
       height: 768,
-      sampler_name: "Euler a",
+      sampler_name: "DPM++ 2M Karras",
       enable_hr: false, 
     }),
   });
 
-  if (!response.ok) throw new Error("Forge 서버 연결 실패 (주소 및 Ngrok 확인)");
+  if (!response.ok) throw new Error("Forge 서버 연결 실패");
   const data = await response.json();
   return `data:image/png;base64,${data.images[0]}`;
 }
 
-/** [필수 4] 최종 이미지 생성 통합 함수 */
+/** [필수 4] 통합 실행 */
 export async function generateImage(
   messages: { role: string; content: string }[],
   settings: AppSettings,
   onStatusChange: (status: string) => void
 ): Promise<{ imageUrl: string; prompt: string }> {
-  onStatusChange(`${settings.charName}의 모습 구상 중...`);
+  onStatusChange(`맥락 분석 및 화풍 구성 중...`);
   const prompt = await generateImagePrompt(messages, settings);
   
-  onStatusChange("내 노트북 GPU(RTX 4070)로 그리는 중...");
+  onStatusChange("노트북 GPU로 장면 그리는 중...");
   const imageUrl = await generateForgeImage(prompt);
 
   return { imageUrl, prompt };
 }
 
-/** [필수 5] 메시지 인코딩/디코딩 */
 export const encodeImageMessage = (url: string, prompt: string) => `![${prompt}](${url})`;
 export const decodeImageMessage = (content: string): { url: string; prompt: string } | null => {
   const match = content.match(/^!\[(.*)\]\((.*)\)$/);
