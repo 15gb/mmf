@@ -25,6 +25,14 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
         const avatarData = JSON.parse(data.avatar);
         const description = avatarData.description || "";
         const urls: string[] = Array.isArray(avatarData.urls) ? avatarData.urls : [];
+        const isRealPhotoLike = (u: string) => {
+          let host = "";
+          try { host = new URL(u).hostname.toLowerCase(); } catch {}
+          if (/instagram|facebook|tiktok|pinterest|tumblr|flickr|imgur|500px/.test(host)) return true;
+          if (/\bcosplay\b|\bphoto\b|\bphotograph\b|\brealistic\b|\blive[- ]?action\b/i.test(u)) return true;
+          return false;
+        };
+        const filteredUrls = urls.filter((u) => !isRealPhotoLike(u));
 
         const toProxy = (u: string) => `/api/image-proxy?url=${encodeURIComponent(u)}`;
         const tryUrls = async (list: string[]): Promise<string | null> => {
@@ -73,7 +81,8 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
           });
         };
 
-        const working = urls.length > 0 ? await tryUrls(urls) : null;
+        const candidates = filteredUrls.length > 0 ? filteredUrls : urls;
+        const working = candidates.length > 0 ? await tryUrls(candidates) : null;
         if (working) {
           avatarUrl = working; // already proxied
         } else {
@@ -150,7 +159,7 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
           }
           // Try Lexica (Stable Diffusion gallery) as non-Pollinations AI source
           if (!found && baseName) {
-            found = (await queryLexica(`${baseName} anime character portrait`)) || null;
+            found = (await queryLexica(`${baseName} anime character portrait, illustration, high quality -cosplay -photo -photograph -realistic -live action`)) || null;
           }
           // Last resort: generic anime image provider
           if (!found) {
