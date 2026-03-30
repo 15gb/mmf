@@ -112,22 +112,20 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 기본 시스템 프롬프트 (정상 대화 지침)
     let systemPrompt = `너는 "${settings.charName}"를 연기하는 작가이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 유저(나): ${settings.myName}
 
 [응답 규칙]
 1. 행동/나레이션은 *별표*로 감싸고 대사는 따옴표("")를 사용하라.
-2. 답변 길이: 핵심 장면 위주로 간결하게 1~2문단 정도로 답변하라.
+2. 답변 길이: 모바일 가독성을 위해 **핵심 장면 위주로 아주 간결하게 1~2문단 정도**로만 답변하라.
 3. 지침: 현재 유저의 말과 행동에 대하여 "${settings.charName}"의 입장에서 반응하고 대화하라.`;
 
-    // 상황별 지침 추가
     if (isAuto) {
-      systemPrompt += `\n\n[자동 진행 모드] 유저의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 작성하고, 그에 대한 "${settings.charName}"의 반응까지 한꺼번에 작성하여 상황을 이어가라.`;
+      systemPrompt += `\n\n[자동 진행 지침] 유저의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 작성하고, 그에 대한 "${settings.charName}"의 반응까지 한꺼번에 작성하여 상황을 이어가라.`;
     } else if (isSummon) {
-      systemPrompt += `\n\n[엑스트라 등장 모드] 상황에 맞는 조연을 등장시켜 짧게 대화를 이끌어라.`;
+      systemPrompt += `\n\n[엑스트라 등장 지침] 현재 장면에 어울리는 새로운 조연을 등장시켜 짧게 대화를 이끌어라. 이름은 네가 맥락에 맞게 정하라.`;
     } else {
-      systemPrompt += `\n\n[일반 대화 모드] 유저("${settings.myName}")가 보낸 메시지에 집중하라. 유저의 행동을 네가 임의로 결정하지 말고, 오직 유저의 입력에 대한 "${settings.charName}"의 반응과 이어지는 상황만 묘사하라.`;
+      systemPrompt += `\n\n[일반 대화 지침] 유저("${settings.myName}")가 보낸 메시지에 집중하라. 유저의 행동을 네가 임의로 결정하지 말고, 오직 유저의 입력에 대한 "${settings.charName}"의 반응과 이어지는 상황만 묘사하라.`;
     }
 
     const history = messages.slice(-10).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
@@ -150,7 +148,6 @@ const ChatPage = () => {
         },
         onDone: () => {
           setIsLoading(false);
-          // 에러 방지를 위해 fullContent가 있을 때만 split 로직 실행
           if (fullContent && fullContent.includes(SPLIT_MARKER)) {
             const parts = fullContent.split(SPLIT_MARKER).map(p => p.trim()).filter(Boolean);
             if (parts.length > 1) {
@@ -158,11 +155,15 @@ const ChatPage = () => {
               for (let i = 1; i < parts.length; i++) addMessage({ role: "assistant", content: parts[i] });
             }
           }
+        },
+        onError: (err) => { // ⭐ eon is error 해결을 위해 onError 콜백 추가
+          setIsLoading(false);
+          toast.error(err);
         }
       });
     } catch (error: any) { 
       setIsLoading(false); 
-      toast.error(error.message); 
+      toast.error(error.message || "오류가 발생했습니다."); 
     }
   }, [input, isLoading, messages, settings, addMessage, updateLastAssistant]);
 
