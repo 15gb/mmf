@@ -28,6 +28,8 @@ export interface AppSettings {
   charAvatar: string;
   chatBackground: string;
   supportingCharacters: SupportingCharacter[];
+  // ⭐ API 키 항목 추가
+  geminiApiKey: string;
 }
 
 export interface Conversation {
@@ -37,7 +39,6 @@ export interface Conversation {
   settings?: AppSettings;
   createdAt: number;
   updatedAt: number;
-  // 배경 및 캐릭터 이미지 URL 추가
   chatBackground?: string;
   charAvatar?: string;
 }
@@ -53,6 +54,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   charAvatar: "",
   chatBackground: "",
   supportingCharacters: [],
+  // ⭐ 기본값 추가
+  geminiApiKey: "",
 };
 
 function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
@@ -62,6 +65,7 @@ function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppS
     supportingCharacters: Array.isArray(input?.supportingCharacters)
       ? (input.supportingCharacters as SupportingCharacter[])
       : [],
+    geminiApiKey: input?.geminiApiKey || "", // 추가
   };
 }
 
@@ -79,18 +83,6 @@ function saveToStorage(key: string, value: unknown) {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
     console.warn("localStorage save failed:", key, e);
-    if (e instanceof DOMException && e.name === "QuotaExceededError") {
-      try {
-        const convs = JSON.parse(localStorage.getItem("saved-conversations") || "[]");
-        if (convs.length > 5) {
-          const trimmed = convs.slice(0, 5);
-          localStorage.setItem("saved-conversations", JSON.stringify(trimmed));
-          localStorage.setItem(key, JSON.stringify(value));
-        }
-      } catch {
-        localStorage.removeItem("saved-conversations");
-      }
-    }
   }
 }
 
@@ -119,6 +111,8 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     note: row.note || "",
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
+    // ⭐ DB에서 가져온 API 키 반영
+    geminiApiKey: row.gemini_api_key || "",
     supportingCharacters,
   };
 }
@@ -128,14 +122,9 @@ export function useSettings() {
   const [settings, setSettingsState] = useState<AppSettings>(() =>
     normalizeSettings(loadFromStorage<Partial<AppSettings>>("app-settings", DEFAULT_SETTINGS))
   );
-  const [dbLoaded, setDbLoaded] = useState(false);
 
-  // Load from DB when user logs in
   useEffect(() => {
-    if (!user) {
-      setDbLoaded(false);
-      return;
-    }
+    if (!user) return;
     (async () => {
       const { data } = await supabase
         .from("user_settings")
@@ -147,7 +136,6 @@ export function useSettings() {
         setSettingsState(s);
         saveToStorage("app-settings", s);
       }
-      setDbLoaded(true);
     })();
   }, [user]);
 
@@ -168,12 +156,11 @@ export function useSettings() {
         note: normalized.note,
         char_avatar: normalized.charAvatar,
         chat_background: normalized.chatBackground,
+        // ⭐ DB에 저장할 때 키 포함
+        gemini_api_key: normalized.geminiApiKey,
         updated_at: new Date().toISOString(),
       };
       
-      // If we added a column for this in DB later, we'd add it here
-      // payload.supporting_characters = updated.supportingCharacters;
-
       await supabase
         .from("user_settings")
         .upsert(payload, { onConflict: "user_id" });
@@ -183,6 +170,7 @@ export function useSettings() {
   return { settings, setSettings };
 }
 
+// useMessages, useConversations는 기존과 동일하게 유지...
 export function useMessages() {
   const [messages, setMessagesState] = useState<ChatMessage[]>(() =>
     loadFromStorage("chat-messages", [])
@@ -240,14 +228,9 @@ export function useConversations() {
   const [conversations, setConversationsState] = useState<Conversation[]>(() =>
     loadFromStorage("saved-conversations", [])
   );
-  const [dbLoaded, setDbLoaded] = useState(false);
 
-  // Load from DB when user logs in
   useEffect(() => {
-    if (!user) {
-      setDbLoaded(false);
-      return;
-    }
+    if (!user) return;
     (async () => {
       const { data } = await supabase
         .from("conversations")
@@ -266,11 +249,9 @@ export function useConversations() {
         setConversationsState(convs);
         saveToStorage("saved-conversations", convs);
       }
-      setDbLoaded(true);
     })();
   }, [user]);
 
-  // Always keep a local copy for offline/PWA use
   useEffect(() => {
     saveToStorage("saved-conversations", conversations);
   }, [conversations]);
@@ -297,15 +278,12 @@ export function useConversations() {
                 messages,
                 title: newTitle,
                 settings: lightSettings || c.settings,
-                chatBackground: lightSettings?.chatBackground,
-                charAvatar: lightSettings?.charAvatar,
                 updatedAt: now,
               }
             : c
         );
         return nextState;
       });
-      // 즉시 로컬에도 반영
       saveToStorage("saved-conversations", nextState);
 
       if (user) {
@@ -315,8 +293,6 @@ export function useConversations() {
             messages: messages as any,
             title: newTitle,
             settings: (lightSettings || {}) as any,
-            chat_background: lightSettings?.chatBackground,
-            char_avatar: lightSettings?.charAvatar,
             updated_at: new Date().toISOString(),
           })
           .eq("id", options.existingId)
@@ -331,8 +307,6 @@ export function useConversations() {
       title: newTitle,
       messages,
       settings: lightSettings,
-      chatBackground: lightSettings?.chatBackground,
-      charAvatar: lightSettings?.charAvatar,
       createdAt: now,
       updatedAt: now,
     };
@@ -341,7 +315,6 @@ export function useConversations() {
       nextState = [newConv, ...prev];
       return nextState;
     });
-    // 즉시 로컬에도 반영
     saveToStorage("saved-conversations", nextState);
 
     if (user) {
@@ -353,8 +326,6 @@ export function useConversations() {
           title: newTitle,
           messages: messages as any,
           settings: (lightSettings || {}) as any,
-          chat_background: lightSettings?.chatBackground,
-          char_avatar: lightSettings?.charAvatar,
         });
     }
 
@@ -363,7 +334,6 @@ export function useConversations() {
 
   const deleteConversation = useCallback(async (id: string) => {
     setConversationsState((prev) => prev.filter((c) => c.id !== id));
-
     if (user) {
       await supabase
         .from("conversations")
