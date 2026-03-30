@@ -1,27 +1,28 @@
 import { useApiKeyStore } from './api-key-store';
 import type { AppSettings } from "./store";
 
-// .env 또는 Vercel 환경변수에서 가져온 Pollinations API 키
-const POLLINATIONS_API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY;
+const FORGE_BASE_URL = "http://127.0.0.1:7860";
+const POLLINATIONS_API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY || "";
 
-function sanitizePrompt(prompt: string): string {
-  return prompt
-    .replace(/[][{}()*#@!]/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-/** 1. Pollinations.ai 이미지 URL 생성 */
+/** [필수 1] ImageCard.tsx 에러 방지용 함수 */
 export function generatePollinationsUrl(prompt: string): string {
-  const clean = sanitizePrompt(prompt);
+  const clean = prompt.replace(/[][{}()*#@!]/g, "").replace(/\s{2,}/g, " ").trim();
   const encodedPrompt = encodeURIComponent(clean);
   const seed = Math.floor(Math.random() * 1000000).toString();
-  
-  // 사용자님이 제공해주신 Pollinations V2 공식 주소 형식
-  return `https://gen.pollinations.ai/image/${encodedPrompt}?model=flux&width=1024&height=1024&seed=${seed}&enhance=false&key=${POLLINATIONS_API_KEY || ""}`;
+  return `https://gen.pollinations.ai/image/${encodedPrompt}?model=flux&width=1024&height=1024&seed=${seed}&enhance=false&key=${POLLINATIONS_API_KEY}`;
 }
 
-/** 2. Gemini로 이미지 프롬프트 생성 (작동 확인된 채팅 API와 동일한 모델/주소 사용) */
+/** [도우미] 캐릭터 설정 추출 */
+function getVisualDescription(settings: AppSettings): string {
+  try {
+    const avatarData = JSON.parse(settings.charAvatar);
+    return avatarData.description || settings.charName;
+  } catch {
+    return settings.charAvatar || settings.charName;
+  }
+}
+
+/** [필수 2] Gemini 프롬프트 생성 */
 export async function generateImagePrompt(
   messages: { role: string; content: string }[],
   settings: AppSettings
@@ -30,51 +31,28 @@ export async function generateImagePrompt(
   let apiKey = getNextKey();
 
   const makeRequest = async (key: string): Promise<string> => {
-    // 💡 [핵심 수정] 채팅 API와 동일한 v1beta 주소 및 gemini-flash-lite-latest 모델 사용
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
+    const visualRef = getVisualDescription(settings);
     
-    const systemPrompt = `You are an expert AI image prompt engineer for the "FLUX" model.
-Consistent identity for "${settings.charName}". 
-Character Context: ${settings.charPersona}
-World Setting: ${settings.worldSetting}
-Visuals: ${settings.charAvatar && settings.charAvatar.length < 500 ? settings.charAvatar : "Anime style character"}.
-Output: ONLY the English prompt. Max 60 words. No explanations.`;
+    const systemPrompt = `Masterpiece anime prompt engineer. 
+Character: ${settings.charName} (${visualRef})
+Style: (abyssorangemix:1.2), masterpiece, best quality, highres, vibrant colors.
+Task: Describe the scene in English tags. No explanations.`;
 
-    const history = messages.map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
-    const combinedPrompt = `${systemPrompt}\n\n[Conversation History]\n${history}\n\nGenerate high-quality English prompt:`;
+    const history = messages.slice(-5).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: combinedPrompt }] }],
-        // 검열 설정을 가장 낮게 적용
-        safetySettings: [
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-        ],
-        generationConfig: {
-          temperature: 0.8,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 150,
-        },
+        contents: [{ parts: [{ text: `${systemPrompt}\n\nChat Context:\n${history}\n\nGenerate Tags:` }] }],
+        safetySettings: [{ category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }],
       }),
     });
 
-    // 할당량 초과 시 키 교체 (채팅 API의 로직과 동일)
     if (response.status === 429) {
       rotateKey();
-      const newApiKey = useApiKeyStore.getState().getNextKey();
-      if (newApiKey === key) throw new Error("모든 API 키의 할당량을 소진했습니다.");
-      return makeRequest(newApiKey);
-    }
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error?.message || `Gemini API 오류: ${response.status}`);
+      return makeRequest(useApiKeyStore.getState().getNextKey());
     }
 
     const data = await response.json();
@@ -84,22 +62,44 @@ Output: ONLY the English prompt. Max 60 words. No explanations.`;
   return makeRequest(apiKey);
 }
 
-/** 3. 최종 이미지 생성 프로세스 */
+/** [필수 3] 로컬 Forge 연동 (Hires.fix 끔) */
+async function generateForgeImage(prompt: string): Promise<string> {
+  const response = await fetch(`${FORGE_BASE_URL}/sdapi/v1/txt2img`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: prompt,
+      negative_prompt: "nsfw, (low quality, worst quality:1.4), bad anatomy, bad hands, text",
+      steps: 25,
+      cfg_scale: 7.5,
+      width: 512,
+      height: 768,
+      sampler_name: "Euler a",
+      enable_hr: false, // 에러 방지를 위해 꺼둠
+    }),
+  });
+
+  if (!response.ok) throw new Error("Forge 서버 연결 실패");
+  const data = await response.json();
+  return `data:image/png;base64,${data.images[0]}`;
+}
+
+/** [필수 4] 최종 이미지 생성 통합 함수 */
 export async function generateImage(
   messages: { role: string; content: string }[],
   settings: AppSettings,
   onStatusChange: (status: string) => void
 ): Promise<{ imageUrl: string; prompt: string }> {
-  onStatusChange("캐릭터 특징 분석 중...");
+  onStatusChange("이미지 구상 중...");
   const prompt = await generateImagePrompt(messages, settings);
-  if (!prompt) throw new Error("이미지 프롬프트를 생성하지 못했습니다.");
-
-  onStatusChange("이미지를 생성하고 있습니다...");
-  const imageUrl = generatePollinationsUrl(prompt);
+  
+  onStatusChange("내 노트북 GPU로 그리는 중...");
+  const imageUrl = await generateForgeImage(prompt);
 
   return { imageUrl, prompt };
 }
 
+/** [필수 5] 메시지 인코딩/디코딩 */
 export const encodeImageMessage = (url: string, prompt: string) => `![${prompt}](${url})`;
 export const decodeImageMessage = (content: string): { url: string; prompt: string } | null => {
   const match = content.match(/^!\[(.*)\]\((.*)\)$/);
