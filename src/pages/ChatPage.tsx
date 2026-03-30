@@ -30,7 +30,7 @@ const ChatPage = () => {
 
   const charName = settings.charName || "AI 캐릭터";
 
-  // URL 파라미터 로딩 (원본 로직 유지)
+  // 1. URL 파라미터 로딩 (원본 로직 유지)
   useEffect(() => {
     const loadId = searchParams.get("load");
     if (searchParams.get("new")) {
@@ -54,7 +54,7 @@ const ChatPage = () => {
     }
   }, [settings.charGreeting, addMessage, messages.length]);
 
-  // 우클릭 메뉴 닫기 핸들러 (원본 로직 유지)
+  // 2. 우클릭 메뉴 닫기 핸들러 (원본 로직 유지)
   useEffect(() => {
     const handler = () => setContextMenu(null);
     if (contextMenu) {
@@ -63,7 +63,7 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
-  // 페이지 나갈 때 자동 저장 (1~5번 슬롯 로테이션 연동)
+  // 3. 페이지 나갈 때 자동 저장 (원본 로직 유지)
   useEffect(() => {
     const handleExit = () => { if (msgRef.current.length > 0) autoSaveConversation(msgRef.current, setRef.current); };
     window.addEventListener("beforeunload", handleExit);
@@ -72,7 +72,7 @@ const ChatPage = () => {
 
   const getDefaultSaveTitle = useCallback(() => (settings.charName || "새 대화").trim().slice(0, 30), [settings.charName]);
 
-  /** 💾 수동 저장 (원본의 중복 확인 및 캐릭터 이름 저장 방식 복구) */
+  /** 💾 수동 저장 (원본 로직 유지) */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) { toast.error("저장할 대화가 없습니다"); return; }
     const currentTitle = getDefaultSaveTitle();
@@ -104,7 +104,7 @@ const ChatPage = () => {
     }
   }, [messages, allConversations, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
 
-  /** 🚀 전송 핸들러 (공백 자동진행 및 엑스트라 소환 기능 통합) */
+  /** 🚀 전송 핸들러 (내 캐릭터 대행 지침 + 길이 최적화 적용) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -124,13 +124,20 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 시스템 프롬프트 구성 (원본 지침 + 요청 기능)
-    let systemPrompt = `너는 "${settings.charName}"를 연기하는 작가이다.\n성격: ${settings.charPersona}\n세계관: ${settings.worldSetting}\n[지침]\n1. 행동/환경 묘사는 별표(*)로 감싸라.\n2. 대사는 따옴표("")를 사용하라.\n3. 응답은 최소 5줄 이상 길게 작성하라.`;
+    // 시스템 프롬프트 구성 (황금 밸런스 길이 + 내 캐릭터 대행 지침)
+    let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다.
+성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 유저(나): ${settings.myName}
+
+[응답 규칙]
+1. 모든 행동과 환경 묘사(나레이션)는 반드시 별표(*)로 감싸라. (예: *너를 보며 고개를 끄덕인다*)
+2. 캐릭터의 대사는 반드시 따옴표("")를 사용하라.
+3. 답변 길이: 핵심적인 장면과 묘사 위주로 **보통 3~4문단 정도**로 구성하라. (너무 장황하지 않게 기존보다 압축)
+4. 나레이션 텍스트는 유저와 구분되도록 별표 처리를 철저히 하라.`;
 
     if (isAuto) {
-      systemPrompt += `\n[상황 자동 진행] 유저의 입력이 없으므로, 현재 맥락에 맞춰 상황을 이어가라. 유저의 캐릭터 행동과 메인 캐릭터의 반응을 모두 묘사하고 필요하면 대화를 진행하라.`;
+      systemPrompt += `\n[특수 지침: 자동 진행] 유저(나)의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 작성하여 이야기를 이어가라. 유저의 행동 이후에 반응하는 "${settings.charName}"의 모습까지 한꺼번에 한 블록에 담아라.`;
     } else if (isSummon) {
-      systemPrompt += `\n[엑스트라 등장] 현재 맥락에 맞는 새로운 조연(엑스트라)을 반드시 등장시켜라. 이름은 네가 맥락에 맞게 정하고 캐릭터 아바타는 사용하지 않을 것이니 이름과 대사를 풍부하게 묘사하라.`;
+      systemPrompt += `\n[특수 지침: 엑스트라 소환] 현재 상황에 어울리는 새로운 조연(엑스트라)을 반드시 등장시켜라. 이름은 네가 맥락에 맞게 정하고, 그 인물의 입장에서 대화와 행동을 풍부하게 묘사하라.`;
     }
 
     const history = messages.slice(-10).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
@@ -181,7 +188,7 @@ const ChatPage = () => {
     setIsGeneratingImage(true);
     const toastId = toast.loading("분석 중...");
     try {
-      const { imageUrl, prompt } = await generateImage(messages, settings, (status) => toast.loading(status, { id: toastId }));
+      const { imageUrl, prompt } = await generateImage(messages, settings, (status) => toast.loading(status, { id: tid }));
       addMessage({ role: "assistant", content: encodeImageMessage(imageUrl, prompt) });
       toast.success("이미지 생성 완료!", { id: toastId });
     } catch (e: any) { toast.error(e.message, { id: toastId }); } finally { setIsGeneratingImage(false); }
@@ -201,7 +208,7 @@ const ChatPage = () => {
       );
     }
     
-    // 유저 나레이션 처리
+    // 유저 나레이션 처리 (원본 스타일 유지)
     const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*") && msg.content.length > 2;
     if (isNarration) {
       return <span className="italic text-muted-foreground/80">{msg.content.slice(1, -1)}</span>;
@@ -303,6 +310,7 @@ const ChatPage = () => {
           <textarea 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
+            // 🌟 엔터(공백) 전송 시 [AUTO] 진행 로직 적용
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSend(input.trim() === "" ? "[AUTO]" : undefined))} 
             placeholder="메시지..." 
             rows={1} 
@@ -315,7 +323,7 @@ const ChatPage = () => {
           >
             <Star size={18} />
           </button>
-          {/* 🌟 엑스트라 소환 버튼 복구 */}
+          {/* 🌟 엑스트라 소환 버튼 */}
           <button 
             onClick={handleSummonCharacter} 
             className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-secondary active:scale-90 transition-all"
