@@ -1,90 +1,92 @@
-import { useApiKeyStore } from './api-key-store';
 import type { AppSettings } from "./store";
 
 const FORGE_BASE_URL = import.meta.env.VITE_FORGE_API_URL || "http://127.0.0.1:7860";
-const POLLINATIONS_API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY || "";
 
-/** [필수 1] 에러 방지용 */
-export function generatePollinationsUrl(prompt: string): string {
-  const clean = prompt.replace(/[][{}()*#@!]/g, "").replace(/\s{2,}/g, " ").trim();
-  const encodedPrompt = encodeURIComponent(clean);
-  const seed = Math.floor(Math.random() * 1000000).toString();
-  return `https://gen.pollinations.ai/image/${encodedPrompt}?model=flux&width=1024&height=1024&seed=${seed}&enhance=false&key=${POLLINATIONS_API_KEY}`;
-}
-
-/** [필수 2] 캐릭터 프로필(외형) 추출 */
-function getVisualDescription(settings: AppSettings): string {
+/** [도우미] 네트워크 요청 타임아웃 */
+const fetchWithTimeout = async (resource: string, options: any = {}, timeout = 20000) => {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
   try {
-    // 프로필 설정에 저장된 외형 묘사 데이터를 가져옵니다.
-    const avatarData = JSON.parse(settings.charAvatar);
-    return avatarData.description || settings.charName;
-  } catch {
-    return settings.charAvatar || settings.charName;
+    const response = await fetch(resource, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return response;
+  } catch (e) {
+    clearTimeout(id);
+    throw e;
   }
-}
+};
 
-/** [핵심] 맥락 분석 및 프롬프트 생성 함수 */
+/** [핵심] Gemini 프롬프트 생성 (키 로테이션 적용) */
 export async function generateImagePrompt(
   messages: { role: string; content: string }[],
   settings: AppSettings
 ): Promise<string> {
-  const { getNextKey, rotateKey } = useApiKeyStore.getState();
-  let apiKey = getNextKey();
+  
+  // 1. 반점으로 구분된 키들을 배열로 만듭니다. (공백 제거 포함)
+  const apiKeys = settings.geminiApiKey
+    .split(',')
+    .map(k => k.trim())
+    .filter(k => k !== "");
 
-  const makeRequest = async (key: string): Promise<string> => {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
-    const visualRef = getVisualDescription(settings);
-    
-    // ⭐ Gemini를 위한 초정밀 지침 (맥락 파악 + 가중치 부여)
-    const systemPrompt = `You are a Scene Analyst & Image Prompt Engineer for "AbyssOrangeMix2".
-Your goal is to capture the EXACT CURRENT MOMENT of the conversation.
+  if (apiKeys.length === 0) {
+    throw new Error("설정창에서 Gemini API 키를 입력해 주세요!");
+  }
 
-[STEP 1: Character Appearance (The Foundation)]
-- Base visual: ${visualRef}
-- Character Identity: ${settings.charPersona}
-- You MUST maintain this character's consistency (hair, eyes, specific clothes).
+  const systemPrompt = `Expert Anime Prompt Engineer. Create comma-separated English tags.
+Character: ${settings.charName} (${settings.charPersona})
+Focus on the LAST message's action and mood. Output ONLY tags. Max 50 words.`;
 
-[STEP 2: Context Analysis (The Scene)]
-- You will be given the last 5 messages of the conversation.
-- Carefully observe the transition of the scene.
-- CRITICAL: The VERY LAST MESSAGE has the HIGHEST WEIGHT. It represents the immediate action, expression, and emotion to be drawn.
+  const history = messages.slice(-5).map((m, idx) => {
+    const weight = (idx === 4) ? " [CURRENT SCENE]" : "";
+    return `${m.role === "assistant" ? "AI" : "User"}: ${m.content}${weight}`;
+  }).join("\n");
 
-[STEP 3: Output Format]
-- Output ONLY English tags (comma-separated).
-- Always include: masterpiece, best quality, (abyssorangemix:1.2), highly detailed, vibrant.
-- Focus on: [Character], [Current Action], [Specific Expression], [Current Background/Atmosphere].
-- Max 60 words. No chat or explanations.`;
-
-    // 💡 최근 5개의 대화만 정교하게 슬라이싱하여 순서대로 전달
-    const contextHistory = messages.slice(-5).map((m, idx) => {
-      const weightLabel = (idx === 4) ? " [CRITICAL: CURRENT SCENE]" : "";
-      return `${m.role === "assistant" ? "AI" : "User"}: ${m.content}${weightLabel}`;
-    }).join("\n");
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `${systemPrompt}\n\n[CONVERSATION CONTEXT (Last 5 messages)]\n${contextHistory}\n\nGenerate Final Prompt Tags:` }] }],
-        safetySettings: [{ category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }],
-      }),
-    });
-
-    if (response.status === 429) {
-      rotateKey();
-      return makeRequest(useApiKeyStore.getState().getNextKey());
+  // 2. 여러 개의 키를 순서대로 시도하는 함수
+  async function tryRequest(keyIndex: number): Promise<string> {
+    if (keyIndex >= apiKeys.length) {
+      throw new Error("모든 API 키의 사용량이 초과되었거나 유효하지 않습니다.");
     }
 
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text.trim() || "";
-  };
+    const currentKey = apiKeys[keyIndex];
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${currentKey}`;
 
-  return makeRequest(apiKey);
+    try {
+      const response = await fetchWithTimeout(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `${systemPrompt}\n\nContext:\n${history}\n\nTags:` }] }],
+        }),
+      });
+
+      // 만약 할당량 초과(429) 에러가 나면 다음 키로 시도
+      if (response.status === 429) {
+        console.warn(`Key ${keyIndex + 1} 초과됨. 다음 키로 시도합니다...`);
+        return tryRequest(keyIndex + 1);
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Gemini API Error:", errorData);
+        // 키 자체가 잘못된 경우(400)도 다음 키 시도
+        return tryRequest(keyIndex + 1);
+      }
+
+      const data = await response.json();
+      return data.candidates?.[0]?.content?.parts?.[0]?.text.trim() || "";
+
+    } catch (err) {
+      console.error(`Key ${keyIndex + 1} 요청 실패:`, err);
+      return tryRequest(keyIndex + 1);
+    }
+  }
+
+  return tryRequest(0); // 0번 키부터 시작!
 }
 
-/** [필수 3] 로컬 Forge 연동 */
+/** [필수] 로컬 Forge 연동 */
 async function generateForgeImage(prompt: string): Promise<string> {
-  const response = await fetch(`${FORGE_BASE_URL}/sdapi/v1/txt2img`, {
+  const response = await fetchWithTimeout(`${FORGE_BASE_URL}/sdapi/v1/txt2img`, {
     method: "POST",
     headers: { 
       "Content-Type": "application/json",
@@ -92,34 +94,38 @@ async function generateForgeImage(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       prompt: prompt,
-      negative_prompt: "nsfw, (low quality, worst quality:1.4), bad anatomy, bad hands, text, watermark, error, blurry",
-      steps: 28,
-      cfg_scale: 8.0,
+      negative_prompt: "nsfw, low quality, bad anatomy, text, error, blurry",
+      steps: 25,
+      cfg_scale: 7.5,
       width: 512,
       height: 768,
-      sampler_name: "DPM++ 2M Karras",
-      enable_hr: false, 
+      sampler_name: "Euler a",
     }),
-  });
+  }, 60000); // 그림 그리기는 1분 대기
 
-  if (!response.ok) throw new Error("Forge 서버 연결 실패");
   const data = await response.json();
+  if (!data.images || data.images.length === 0) throw new Error("이미지 생성 결과가 없습니다.");
   return `data:image/png;base64,${data.images[0]}`;
 }
 
-/** [필수 4] 통합 실행 */
+/** [필수] 통합 실행 함수 */
 export async function generateImage(
   messages: { role: string; content: string }[],
   settings: AppSettings,
   onStatusChange: (status: string) => void
 ): Promise<{ imageUrl: string; prompt: string }> {
-  onStatusChange(`맥락 분석 및 화풍 구성 중...`);
-  const prompt = await generateImagePrompt(messages, settings);
-  
-  onStatusChange("노트북 GPU로 장면 그리는 중...");
-  const imageUrl = await generateForgeImage(prompt);
+  try {
+    onStatusChange("문맥 분석 중 (Gemini)...");
+    const prompt = await generateImagePrompt(messages, settings);
+    
+    onStatusChange("노트북 GPU로 그리는 중...");
+    const imageUrl = await generateForgeImage(prompt);
 
-  return { imageUrl, prompt };
+    return { imageUrl, prompt };
+  } catch (err: any) {
+    onStatusChange(`에러: ${err.message}`);
+    throw err;
+  }
 }
 
 export const encodeImageMessage = (url: string, prompt: string) => `![${prompt}](${url})`;

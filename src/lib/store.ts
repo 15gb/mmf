@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { generateUUID } from "./utils";
 
+// --- Interfaces ---
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -28,7 +29,6 @@ export interface AppSettings {
   charAvatar: string;
   chatBackground: string;
   supportingCharacters: SupportingCharacter[];
-  // ⭐ API 키 항목 추가
   geminiApiKey: string;
 }
 
@@ -39,10 +39,9 @@ export interface Conversation {
   settings?: AppSettings;
   createdAt: number;
   updatedAt: number;
-  chatBackground?: string;
-  charAvatar?: string;
 }
 
+// --- Constants & Utils ---
 const DEFAULT_SETTINGS: AppSettings = {
   myName: "",
   myIntro: "",
@@ -54,7 +53,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   charAvatar: "",
   chatBackground: "",
   supportingCharacters: [],
-  // ⭐ 기본값 추가
   geminiApiKey: "",
 };
 
@@ -62,10 +60,8 @@ function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppS
   const base = { ...DEFAULT_SETTINGS, ...(input || {}) } as AppSettings;
   return {
     ...base,
-    supportingCharacters: Array.isArray(input?.supportingCharacters)
-      ? (input.supportingCharacters as SupportingCharacter[])
-      : [],
-    geminiApiKey: input?.geminiApiKey || "", // 추가
+    supportingCharacters: Array.isArray(input?.supportingCharacters) ? input.supportingCharacters : [],
+    geminiApiKey: input?.geminiApiKey || "",
   };
 }
 
@@ -73,32 +69,20 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   try {
     const stored = localStorage.getItem(key);
     return stored ? JSON.parse(stored) : fallback;
-  } catch {
-    return fallback;
-  }
+  } catch { return fallback; }
 }
 
 function saveToStorage(key: string, value: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (e) {
-    console.warn("localStorage save failed:", key, e);
-  }
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.warn(e); }
 }
 
-// Convert DB row to AppSettings
 function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
   let supportingCharacters = currentSettings.supportingCharacters;
   if (row.supporting_characters) {
     try {
-      const parsed =
-        typeof row.supporting_characters === "string"
-          ? JSON.parse(row.supporting_characters)
-          : row.supporting_characters;
+      const parsed = typeof row.supporting_characters === "string" ? JSON.parse(row.supporting_characters) : row.supporting_characters;
       supportingCharacters = Array.isArray(parsed) ? parsed : currentSettings.supportingCharacters;
-    } catch {
-      supportingCharacters = currentSettings.supportingCharacters;
-    }
+    } catch { }
   }
   return {
     ...currentSettings,
@@ -111,12 +95,14 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     note: row.note || "",
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
-    // ⭐ DB에서 가져온 API 키 반영
     geminiApiKey: row.gemini_api_key || "",
     supportingCharacters,
   };
 }
 
+// --- Hooks ---
+
+/** 1. 설정 관리 훅 */
 export function useSettings() {
   const { user } = useAuth();
   const [settings, setSettingsState] = useState<AppSettings>(() =>
@@ -126,11 +112,7 @@ export function useSettings() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data } = await supabase
-        .from("user_settings")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      const { data } = await supabase.from("user_settings").select("*").eq("user_id", user.id).maybeSingle();
       if (data) {
         const s = rowToSettings(data, settings);
         setSettingsState(s);
@@ -143,9 +125,8 @@ export function useSettings() {
     const normalized = normalizeSettings(updated);
     setSettingsState(normalized);
     saveToStorage("app-settings", normalized);
-
     if (user) {
-      const payload: any = {
+      await supabase.from("user_settings").upsert({
         user_id: user.id,
         my_name: normalized.myName,
         my_intro: normalized.myIntro,
@@ -156,93 +137,61 @@ export function useSettings() {
         note: normalized.note,
         char_avatar: normalized.charAvatar,
         chat_background: normalized.chatBackground,
-        // ⭐ DB에 저장할 때 키 포함
         gemini_api_key: normalized.geminiApiKey,
         updated_at: new Date().toISOString(),
-      };
-      
-      await supabase
-        .from("user_settings")
-        .upsert(payload, { onConflict: "user_id" });
+      }, { onConflict: "user_id" });
     }
   }, [user]);
 
   return { settings, setSettings };
 }
 
-// useMessages, useConversations는 기존과 동일하게 유지...
+/** 2. 메시지 관리 훅 */
 export function useMessages() {
-  const [messages, setMessagesState] = useState<ChatMessage[]>(() =>
-    loadFromStorage("chat-messages", [])
-  );
-
-  useEffect(() => {
-    saveToStorage("chat-messages", messages);
-  }, [messages]);
+  const [messages, setMessagesState] = useState<ChatMessage[]>(() => loadFromStorage("chat-messages", []));
+  useEffect(() => { saveToStorage("chat-messages", messages); }, [messages]);
 
   const addMessage = useCallback((msg: Omit<ChatMessage, "id" | "timestamp">) => {
-    const newMsg: ChatMessage = {
-      ...msg,
-      id: generateUUID(),
-      timestamp: Date.now(),
-    };
+    const newMsg = { ...msg, id: generateUUID(), timestamp: Date.now() };
     setMessagesState((prev) => [...prev, newMsg]);
     return newMsg;
   }, []);
 
-  const clearMessages = useCallback(() => {
-    setMessagesState([]);
-  }, []);
-
-  const deleteMessage = useCallback((id: string) => {
-    setMessagesState((prev) => prev.filter((m) => m.id !== id));
-  }, []);
-
-  const deleteMessagesFrom = useCallback((id: string) => {
-    setMessagesState((prev) => {
-      const idx = prev.findIndex((m) => m.id === id);
-      if (idx === -1) return prev;
-      return prev.slice(0, idx);
-    });
-  }, []);
-
-  const updateLastAssistant = useCallback((content: string) => {
-    setMessagesState((prev) => {
+  return { 
+    messages, 
+    addMessage, 
+    clearMessages: () => setMessagesState([]),
+    loadMessages: (msgs: ChatMessage[]) => setMessagesState(msgs),
+    updateLastAssistant: (content: string) => setMessagesState(prev => {
       const last = prev[prev.length - 1];
-      if (last?.role === "assistant") {
-        return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content } : m));
-      }
-      return prev;
-    });
-  }, []);
-
-  const loadMessages = useCallback((msgs: ChatMessage[]) => {
-    setMessagesState(msgs);
-  }, []);
-
-  return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages };
+      return last?.role === "assistant" ? prev.map((m, i) => i === prev.length - 1 ? { ...m, content } : m) : prev;
+    })
+  };
 }
 
+/** 3. 대화 목록 관리 훅 (자동저장 & 필터링 통합) */
 export function useConversations() {
   const { user } = useAuth();
-  const [conversations, setConversationsState] = useState<Conversation[]>(() =>
-    loadFromStorage("saved-conversations", [])
-  );
+  const [conversations, setConversationsState] = useState<Conversation[]>(() => loadFromStorage("saved-conversations", []));
+  
+  // ⭐ 자동저장 숨기기 상태 (기본값: 보임)
+  const [showAutoSaves, setShowAutoSavesState] = useState(() => loadFromStorage("show-auto-saves", true));
+
+  const setShowAutoSaves = useCallback((val: boolean) => {
+    setShowAutoSavesState(val);
+    saveToStorage("show-auto-saves", val);
+  }, []);
 
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data } = await supabase
-        .from("conversations")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("updated_at", { ascending: false });
-      if (data && data.length > 0) {
-        const convs: Conversation[] = data.map((row: any) => ({
+      const { data } = await supabase.from("conversations").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
+      if (data) {
+        const convs = data.map((row: any) => ({
           id: row.id,
           title: row.title,
-          messages: (row.messages as ChatMessage[]) || [],
-          settings: row.settings as AppSettings | undefined,
+          messages: row.messages || [],
+          settings: row.settings,
           createdAt: new Date(row.created_at).getTime(),
           updatedAt: new Date(row.updated_at).getTime(),
         }));
@@ -252,96 +201,70 @@ export function useConversations() {
     })();
   }, [user]);
 
-  useEffect(() => {
-    saveToStorage("saved-conversations", conversations);
-  }, [conversations]);
+  useEffect(() => { saveToStorage("saved-conversations", conversations); }, [conversations]);
 
   const saveConversation = useCallback(async (messages: ChatMessage[], options: { existingId?: string, title?: string, settings?: AppSettings }) => {
     if (messages.length === 0) return null;
-
     const now = Date.now();
-    const newTitle = options.title || messages.find((m) => m.role === "user")?.content.slice(0, 30) || "새 대화";
+    const newTitle = options.title || messages.find(m => m.role === "user")?.content.slice(0, 30) || "새 대화";
 
+    // 용량 최적화 (이미지 문자열 제거)
     const lightSettings = options.settings ? {
       ...options.settings,
-      charAvatar: options.settings.charAvatar && options.settings.charAvatar.length > 500 ? "" : options.settings.charAvatar,
-      chatBackground: options.settings.chatBackground && options.settings.chatBackground.length > 500 ? "" : options.settings.chatBackground,
+      charAvatar: (options.settings.charAvatar?.length || 0) > 500 ? "" : options.settings.charAvatar,
+      chatBackground: (options.settings.chatBackground?.length || 0) > 500 ? "" : options.settings.chatBackground,
     } : undefined;
 
     if (options.existingId) {
-      let nextState: Conversation[] = [];
-      setConversationsState((prev) => {
-        nextState = prev.map((c) =>
-          c.id === options.existingId
-            ? {
-                ...c,
-                messages,
-                title: newTitle,
-                settings: lightSettings || c.settings,
-                updatedAt: now,
-              }
-            : c
-        );
-        return nextState;
-      });
-      saveToStorage("saved-conversations", nextState);
-
+      setConversationsState(prev => prev.map(c => c.id === options.existingId ? { ...c, messages, title: newTitle, updatedAt: now } : c));
       if (user) {
-        await supabase
-          .from("conversations")
-          .update({
-            messages: messages as any,
-            title: newTitle,
-            settings: (lightSettings || {}) as any,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", options.existingId)
-          .eq("user_id", user.id);
+        await supabase.from("conversations").update({ messages, title: newTitle, settings: lightSettings as any, updated_at: new Date().toISOString() }).eq("id", options.existingId);
       }
       return options.existingId;
     }
 
     const newId = generateUUID();
-    const newConv: Conversation = {
-      id: newId,
-      title: newTitle,
-      messages,
-      settings: lightSettings,
-      createdAt: now,
-      updatedAt: now,
-    };
-    let nextState: Conversation[] = [];
-    setConversationsState((prev) => {
-      nextState = [newConv, ...prev];
-      return nextState;
-    });
-    saveToStorage("saved-conversations", nextState);
-
+    const newConv = { id: newId, title: newTitle, messages, settings: lightSettings, createdAt: now, updatedAt: now };
+    setConversationsState(prev => [newConv, ...prev]);
     if (user) {
-      await supabase
-        .from("conversations")
-        .insert({
-          id: newId,
-          user_id: user.id,
-          title: newTitle,
-          messages: messages as any,
-          settings: (lightSettings || {}) as any,
-        });
+      await supabase.from("conversations").insert({ id: newId, user_id: user.id, title: newTitle, messages, settings: lightSettings as any });
     }
-
     return newId;
   }, [user]);
 
+  /** 🔄 자동 저장 로테이션 (1~5번) */
+  const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
+    if (messages.length === 0) return;
+    const firstMsg = messages.find(m => m.role === "user")?.content || "";
+    const baseTitle = firstMsg.slice(0, 15) || "대화";
+
+    const currentIdx = parseInt(localStorage.getItem("auto-save-idx") || "0");
+    const nextIdx = currentIdx >= 5 ? 1 : currentIdx + 1;
+    localStorage.setItem("auto-save-idx", nextIdx.toString());
+
+    const autoTitle = `${baseTitle} - 자동저장(${nextIdx})`;
+    const existingSlot = conversations.find(c => c.title.includes(`자동저장(${nextIdx})`));
+
+    await saveConversation(messages, { existingId: existingSlot?.id, title: autoTitle, settings });
+  }, [conversations, saveConversation]);
+
   const deleteConversation = useCallback(async (id: string) => {
-    setConversationsState((prev) => prev.filter((c) => c.id !== id));
-    if (user) {
-      await supabase
-        .from("conversations")
-        .delete()
-        .eq("id", id)
-        .eq("user_id", user.id);
-    }
+    setConversationsState(prev => prev.filter(c => c.id !== id));
+    if (user) await supabase.from("conversations").delete().eq("id", id);
   }, [user]);
 
-  return { conversations, saveConversation, deleteConversation };
+  // ⭐ 필터링 처리 (UI에서 사용할 목록)
+  const filteredConversations = useMemo(() => {
+    return conversations.filter(c => showAutoSaves ? true : !c.title.includes("- 자동저장("));
+  }, [conversations, showAutoSaves]);
+
+  return { 
+    conversations: filteredConversations, // 화면 표시용
+    allConversations: conversations,      // 전체 데이터 (삭제용)
+    saveConversation, 
+    autoSaveConversation, 
+    deleteConversation,
+    showAutoSaves,
+    setShowAutoSaves
+  };
 }
