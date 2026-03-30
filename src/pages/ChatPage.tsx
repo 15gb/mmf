@@ -34,7 +34,7 @@ const ChatPage = () => {
   const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 최신 상태 참조용 (자동저장용)
+  // 자동저장을 위한 최신 상태 유지
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
 
@@ -63,7 +63,7 @@ const ChatPage = () => {
       }
       setSearchParams({}, { replace: true });
     }
-  }, []);
+  }, [conversations, loadMessages, clearMessages, searchParams, setSearchParams]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -73,9 +73,9 @@ const ChatPage = () => {
     if (messages.length === 0 && settings.charGreeting) {
       addMessage({ role: "assistant", content: settings.charGreeting });
     }
-  }, []);
+  }, [settings.charGreeting, addMessage, messages.length]);
 
-  /** ⭐ [추가] 페이지 이탈 시 자동 저장 (1~5번 로테이션) */
+  /** 🚪 페이지 이탈 시 자동 저장 (1~5번 순환) */
   useEffect(() => {
     const handleExitSave = () => {
       if (messagesRef.current.length > 0) {
@@ -128,14 +128,13 @@ const ChatPage = () => {
     if (settings?.myName) systemParts.push(`상대방(유저) 이름: ${settings.myName}`);
     if (settings?.note) systemParts.push(`[기억해야 할 내용]\n${settings.note}`);
 
-    // ⭐ [응답 규칙 강화]
     systemParts.push(`
 [응답 규칙]
 1. 행동, 표정, 주변 환경 묘사(나레이션)는 반드시 별표(*)로 감싸주세요. (예: *가볍게 웃으며 손을 흔든다*)
 2. 대화문은 반드시 따옴표("")를 사용해주세요.
 3. 응답은 상황을 풍부하게 묘사하여 **최소 5줄 이상**으로 길게 작성하세요.
 4. 한 번의 응답에 대사뿐만 아니라 풍부한 나레이션을 포함해 하나의 완성된 '장면'을 만들어주세요.
-5. 장면이 너무 길거나 분위기가 완전히 바뀔 때만 "${SPLIT_MARKER}" 구분자를 사용해 메시지를 나누어주세요. 기본적으로는 한 블록에 모두 담습니다.`);
+5. 장면이 너무 길거나 분위기가 완전히 바뀔 때만 "${SPLIT_MARKER}" 구분자를 사용해 메시지를 나누어주세요.`);
 
     const systemPrompt = systemParts.join("\n\n");
     const history = messages.slice(-10).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
@@ -175,15 +174,11 @@ const ChatPage = () => {
     }
   }, [input, isLoading, messages, settings, addMessage, updateLastAssistant]);
 
-  // 나레이션 버튼 핸들러
   const handleNarration = useCallback(() => {
     if (isLoading) return;
     const trimmed = input.trim();
-    if (trimmed) {
-      handleSend(`*${trimmed}*`);
-    } else {
-      setInput("*");
-    }
+    if (trimmed) handleSend(`*${trimmed}*`);
+    else setInput("*");
   }, [input, isLoading, handleSend]);
 
   const handleSummonCharacter = useCallback(() => {
@@ -209,10 +204,16 @@ const ChatPage = () => {
     }
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
+  const handleLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const clientX = "touches" in e ? (e as React.TouchEvent).touches[0].clientX : (e as React.MouseEvent).clientX;
+    const clientY = "touches" in e ? (e as React.TouchEvent).touches[0].clientY : (e as React.MouseEvent).clientY;
+    setContextMenu({ id, x: clientX, y: clientY });
+  };
+
   const renderContent = (msg: { role: string; content: string }) => {
     const imgData = decodeImageMessage(msg.content);
     if (imgData) return <ImageCard url={imgData.url} prompt={imgData.prompt} />;
-
     if (msg.role === "assistant") {
       return (
         <div className="prose prose-sm prose-invert max-w-none 
@@ -222,7 +223,6 @@ const ChatPage = () => {
         </div>
       );
     }
-    
     if (msg.content.startsWith("*") && msg.content.endsWith("*")) {
       return <span className="italic text-muted-foreground/80">{msg.content.slice(1, -1)}</span>;
     }
@@ -234,7 +234,7 @@ const ChatPage = () => {
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
         <button onClick={() => navigate("/settings")} className="flex items-center gap-2 text-foreground active:opacity-70">
           <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
-            {settings.charAvatar ? <img src={settings.charAvatar} className="w-full h-full rounded-full object-cover" /> : charName[0]}
+            {settings.charAvatar ? <img src={settings.charAvatar} className="w-full h-full rounded-full object-cover" alt="avatar" /> : charName[0]}
           </div>
           <div className="text-left">
             <p className="font-semibold text-sm leading-tight">{charName}</p>
@@ -246,19 +246,28 @@ const ChatPage = () => {
           <button onClick={handleSave} className="p-2 hover:text-primary"><Save size={18} /></button>
           <button onClick={() => navigate("/conversations")} className="p-2 hover:text-foreground"><List size={18} /></button>
           <button onClick={clearMessages} className="p-2 hover:text-destructive"><Trash2 size={18} /></button>
+          {/* ⭐ [복구] 설정 버튼 다시 추가 */}
+          <button onClick={() => navigate("/settings")} className="p-2 hover:text-foreground"><Settings size={18} /></button>
         </div>
       </header>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-4" style={settings.chatBackground ? { backgroundImage: `url(${settings.chatBackground})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
+          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`} onContextMenu={(e) => handleLongPress(msg.id, e)}>
             <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-br-none" : "bg-card border border-border rounded-bl-none text-foreground"}`}>
               {renderContent(msg)}
             </div>
           </div>
         ))}
-        {isLoading && <Loader2 className="animate-spin text-muted-foreground" size={20} />}
+        {isLoading && <div className="flex justify-start"><Loader2 className="animate-spin text-muted-foreground" size={20} /></div>}
       </div>
+
+      {contextMenu && (
+        <div className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={() => setContextMenu(null)}>
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted" onClick={() => deleteMessage(contextMenu.id)}><X size={14} /> 삭제</button>
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted" onClick={() => deleteMessagesFrom(contextMenu.id)}><Scissors size={14} /> 여기까지 삭제</button>
+        </div>
+      )}
 
       <div className="shrink-0 border-t border-border bg-card px-3 py-3 safe-area-bottom">
         <div className="flex items-end gap-2">
