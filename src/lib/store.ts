@@ -170,12 +170,12 @@ export function useConversations() {
     saveToStorage("show-auto-saves", val);
   }, []);
 
-  // 서버 데이터 동기화
+  // 🔄 서버 데이터 '안전 병합' 동기화
   useEffect(() => {
     if (!user) return;
     (async () => {
       const { data } = await supabase.from("conversations").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
-      if (data) {
+      if (data && data.length > 0) {
         const remoteConvs = data.map((row: any) => ({
           id: row.id,
           title: row.title,
@@ -185,16 +185,18 @@ export function useConversations() {
           updatedAt: new Date(row.updated_at).getTime(),
         }));
 
-        // 병합: 로컬에만 있는 최신 데이터를 유지하면서 서버 데이터를 합침
         setConversationsState(prev => {
+          // 로컬에 이미 있는 데이터와 서버 데이터를 합칩니다.
           const merged = [...prev];
           remoteConvs.forEach(remote => {
             const index = merged.findIndex(l => l.id === remote.id);
             if (index > -1) {
+              // 둘 다 있다면 업데이트 시간이 더 늦은(최신) 것을 선택
               if (remote.updatedAt > merged[index].updatedAt) {
                 merged[index] = remote;
               }
             } else {
+              // 로컬에 없는 데이터만 새로 추가
               merged.push(remote);
             }
           });
@@ -210,6 +212,7 @@ export function useConversations() {
     if (messages.length === 0) return null;
     const now = Date.now();
     const newTitle = options.title || "새 대화";
+    const convId = options.existingId || generateUUID();
 
     const lightSettings = options.settings ? {
       ...options.settings,
@@ -217,18 +220,16 @@ export function useConversations() {
       chatBackground: (options.settings.chatBackground?.length || 0) > 500 ? "" : options.settings.chatBackground,
     } : undefined;
 
-    const convId = options.existingId || generateUUID();
     const newConv = { id: convId, title: newTitle, messages, settings: lightSettings, createdAt: now, updatedAt: now };
 
-    // 로컬 상태 먼저 업데이트 (즉각 반영)
+    // 로컬 상태 즉시 반영 (사라짐 방지)
     setConversationsState(prev => {
-      const next = prev.filter(c => c.id !== convId);
-      const updated = [newConv, ...next];
+      const filtered = prev.filter(c => c.id !== convId);
+      const updated = [newConv, ...filtered];
       saveToStorage("saved-conversations", updated);
       return updated;
     });
 
-    // 서버 업데이트
     if (user) {
       await supabase.from("conversations").upsert({
         id: convId,
@@ -260,9 +261,10 @@ export function useConversations() {
     if (user) await supabase.from("conversations").delete().eq("id", id);
   }, [user]);
 
-  const filtered = useMemo(() => {
+  // UI용 필터링 목록
+  const displayConversations = useMemo(() => {
     return conversations.filter(c => showAutoSaves ? true : !c.title.includes("- 자동저장("));
   }, [conversations, showAutoSaves]);
 
-  return { conversations: filtered, allConversations: conversations, saveConversation, autoSaveConversation, deleteConversation, showAutoSaves, setShowAutoSaves };
+  return { conversations: displayConversations, allConversations: conversations, saveConversation, autoSaveConversation, deleteConversation, showAutoSaves, setShowAutoSaves };
 }

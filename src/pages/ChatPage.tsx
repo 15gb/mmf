@@ -36,8 +36,12 @@ const ChatPage = () => {
       clearMessages(); setCurrentConvId(null);
       setSearchParams({}, { replace: true });
     } else if (loadId) {
+      // allConversations에서 찾아야 숨겨진 자동저장 파일도 로드 가능
       const conv = allConversations.find((c) => c.id === loadId);
-      if (conv) { loadMessages(conv.messages); setCurrentConvId(conv.id); }
+      if (conv) { 
+        loadMessages(conv.messages); 
+        setCurrentConvId(conv.id); 
+      }
       setSearchParams({}, { replace: true });
     }
   }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages]);
@@ -59,20 +63,21 @@ const ChatPage = () => {
 
   const getDefaultSaveTitle = useCallback(() => (settings.charName || "새 대화").trim().slice(0, 30), [settings.charName]);
 
-  /** 💾 수동 저장 (캐릭터 이름 중복 체크 방식) */
+  /** 💾 수동 저장 (캐릭터 이름 중복 체크 방식 복구) */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) { toast.error("저장할 대화가 없습니다"); return; }
     const currentTitle = getDefaultSaveTitle();
 
-    // 1. 이미 열려있는 대화면 업데이트
+    // 1. 현재 대화 중인 ID가 있으면 즉시 업데이트
     if (currentConvId) {
       await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings });
       toast.success("대화가 업데이트되었습니다");
       return;
     }
 
-    // 2. 같은 캐릭터 이름의 대화가 있는지 확인
+    // 2. ID는 없지만 같은 캐릭터명의 대화가 있는지 전체 목록에서 확인
     const duplicate = allConversations.find(c => c.title === currentTitle);
+    
     if (duplicate) {
       if (window.confirm(`"${currentTitle}" 이름의 대화가 이미 있습니다. 덮어쓰시겠습니까?`)) {
         await saveConversation(messages, { existingId: duplicate.id, title: currentTitle, settings });
