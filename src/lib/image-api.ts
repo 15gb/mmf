@@ -1,7 +1,8 @@
 import { useApiKeyStore } from './api-key-store';
 import type { AppSettings } from "./store";
 
-const FORGE_BASE_URL = "http://127.0.0.1:7860";
+// 1. Vercel 배포 시에는 Ngrok 주소를, 로컬 테스트 시에는 127.0.0.1을 사용합니다.
+const FORGE_BASE_URL = import.meta.env.VITE_FORGE_API_URL || "http://127.0.0.1:7860";
 const POLLINATIONS_API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY || "";
 
 /** [필수 1] ImageCard.tsx 에러 방지용 함수 */
@@ -34,10 +35,11 @@ export async function generateImagePrompt(
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
     const visualRef = getVisualDescription(settings);
     
-    const systemPrompt = `Masterpiece anime prompt engineer. 
+    const systemPrompt = `Masterpiece anime prompt engineer for "AbyssOrangeMix2". 
 Character: ${settings.charName} (${visualRef})
+Identity: ${settings.charPersona}
 Style: (abyssorangemix:1.2), masterpiece, best quality, highres, vibrant colors.
-Task: Describe the scene in English tags. No explanations.`;
+Task: Create high-quality English tags for the current scene. No explanations.`;
 
     const history = messages.slice(-5).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
 
@@ -62,24 +64,29 @@ Task: Describe the scene in English tags. No explanations.`;
   return makeRequest(apiKey);
 }
 
-/** [필수 3] 로컬 Forge 연동 (Hires.fix 끔) */
+/** [필수 3] 로컬 Forge 연동 (Vercel 대응 업데이트) */
 async function generateForgeImage(prompt: string): Promise<string> {
   const response = await fetch(`${FORGE_BASE_URL}/sdapi/v1/txt2img`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      // ⭐ [중요] Ngrok의 'Browser Warning' 페이지를 강제로 건너뛰게 하는 헤더입니다.
+      // 이 줄이 없으면 Vercel에서 요청을 보낼 때 Ngrok이 연결을 차단합니다.
+      "ngrok-skip-browser-warning": "69420"
+    },
     body: JSON.stringify({
       prompt: prompt,
-      negative_prompt: "nsfw, (low quality, worst quality:1.4), bad anatomy, bad hands, text",
+      negative_prompt: "nsfw, (low quality, worst quality:1.4), bad anatomy, bad hands, text, watermark, error",
       steps: 25,
       cfg_scale: 7.5,
       width: 512,
       height: 768,
       sampler_name: "Euler a",
-      enable_hr: false, // 에러 방지를 위해 꺼둠
+      enable_hr: false, 
     }),
   });
 
-  if (!response.ok) throw new Error("Forge 서버 연결 실패");
+  if (!response.ok) throw new Error("Forge 서버 연결 실패 (주소 및 Ngrok 확인)");
   const data = await response.json();
   return `data:image/png;base64,${data.images[0]}`;
 }
@@ -90,10 +97,10 @@ export async function generateImage(
   settings: AppSettings,
   onStatusChange: (status: string) => void
 ): Promise<{ imageUrl: string; prompt: string }> {
-  onStatusChange("이미지 구상 중...");
+  onStatusChange(`${settings.charName}의 모습 구상 중...`);
   const prompt = await generateImagePrompt(messages, settings);
   
-  onStatusChange("내 노트북 GPU로 그리는 중...");
+  onStatusChange("내 노트북 GPU(RTX 4070)로 그리는 중...");
   const imageUrl = await generateForgeImage(prompt);
 
   return { imageUrl, prompt };
