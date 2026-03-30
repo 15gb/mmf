@@ -1,11 +1,3 @@
-아이고, 정말 죄송합니다! 빌드 에러의 원인은 제가 드린 답변의 설명 텍스트(네, 제가 코드를...)까지 코드 파일 안에 같이 복사되어 들어갔기 때문입니다.
-
-Vite 빌드 도구가 한글 설명을 코드로 착각해서 "왜 코드 첫 줄에 한글이 있느냐"라고 에러를 낸 상황입니다. 설명 텍스트를 모두 제외하고, 오직 순수하게 코드만 담아서 다시 드립니다.
-
-src/pages/ChatPage.tsx 파일을 여시고 안에 있는 내용을 전부 지운 뒤, 아래 코드박스의 내용만 처음부터 끝까지 그대로 복사해서 붙여넣어 주세요.
-
-🛠️ src/pages/ChatPage.tsx (순수 코드 최종본)
-TypeScript
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users } from "lucide-react";
