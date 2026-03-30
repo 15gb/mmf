@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash } from "lucide-react";
+import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash, Key } from "lucide-react";
 import { useSettings, useConversations, type AppSettings, type SupportingCharacter } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 import { generateUUID } from "@/lib/utils";
@@ -329,7 +329,27 @@ const SettingsPage = () => {
           <p className="text-xs text-muted-foreground">
             💡 여기에 적은 내용은 AI에게 보내는 모든 요청에 시스템 프롬프트로 포함됩니다.
           </p>
+
+          {/* ⭐ [요청 반영] 노트 칸 바로 아래에 API 키 입력창 배치 */}
+          <div className="mt-6 pt-5 border-t border-border/50 space-y-2">
+            <label className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Key size={16} className="text-primary" />
+              이미지 생성용 API 키 (Gemini)
+            </label>
+            <input
+              type="password"
+              value={form.geminiApiKey || ""}
+              onChange={(e) => update("geminiApiKey", e.target.value)}
+              placeholder="AIzaSy..."
+              className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <p className="text-[10px] text-muted-foreground italic leading-relaxed">
+              * 모바일에서 "이미지 생성" 시 대화 문맥을 파악하기 위해 필수입니다.<br/>
+              * 본인의 Gemini API 키를 입력하고 상단 [저장]을 눌러주세요.
+            </p>
+          </div>
         </Section>
+
         <Section title="데이터 관리">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
