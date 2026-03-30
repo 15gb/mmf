@@ -25,7 +25,7 @@ const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { settings } = useSettings();
   const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
-  const { conversations, saveConversation } = useConversations();
+  const { conversations, saveConversation, deleteConversation } = useConversations();
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -76,14 +76,22 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
+  const getDefaultSaveTitle = useCallback(() => {
+    const greeting = (settings.charGreeting || "").trim();
+    const firstLine = greeting
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean);
+    return (firstLine || "새 대화").slice(0, 30);
+  }, [settings.charGreeting]);
+
   // Auto-save on page unload
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (messages.length > 0) {
         try {
           const convs = JSON.parse(localStorage.getItem("saved-conversations") || "[]");
-          const firstUserMsg = messages.find((m) => m.role === "user");
-          const title = firstUserMsg ? firstUserMsg.content.slice(0, 30) : "새 대화";
+          const title = getDefaultSaveTitle();
           const now = Date.now();
           const lightSettings = {
             ...settings,
@@ -115,7 +123,7 @@ const ChatPage = () => {
 
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [messages, currentConvId, settings]);
+  }, [messages, currentConvId, settings, getDefaultSaveTitle]);
 
   const handleSave = useCallback(async () => {
     if (messages.length === 0) {
@@ -123,13 +131,19 @@ const ChatPage = () => {
       return;
     }
 
-    const currentTitle = messages.find((m) => m.role === "user")?.content.slice(0, 30) || "새 대화";
-    const existingConv = conversations.find(c => c.title === currentTitle);
+    const currentTitle = getDefaultSaveTitle();
+    const matchingConvs = conversations.filter((c) => c.title === currentTitle);
 
-    if (existingConv) {
+    if (matchingConvs.length > 0) {
       const overwrite = window.confirm(`"${currentTitle}" 이름으로 저장된 대화가 이미 있습니다. 덮어쓰시겠습니까?`);
       if (overwrite) {
-        await saveConversation(messages, { existingId: existingConv.id, title: currentTitle, settings });
+        const target = matchingConvs.reduce((latest, c) => (c.updatedAt > latest.updatedAt ? c : latest));
+        await saveConversation(messages, { existingId: target.id, title: currentTitle, settings });
+        const duplicates = matchingConvs.filter((c) => c.id !== target.id);
+        for (const d of duplicates) {
+          await deleteConversation(d.id);
+        }
+        setCurrentConvId(target.id);
         toast.success("대화가 덮어쓰기 되었습니다.");
       } else {
         const newTitle = window.prompt("새로운 대화 제목을 입력해주세요:", `${currentTitle} (1)`);
@@ -148,7 +162,7 @@ const ChatPage = () => {
         toast.success("대화가 저장되었습니다");
       }
     }
-  }, [messages, conversations, saveConversation, settings]);
+  }, [messages, conversations, saveConversation, deleteConversation, settings, getDefaultSaveTitle]);
 
   const handleOverwriteConfirm = useCallback(async (overwrite: boolean) => {
     setShowOverwriteDialog(false);
