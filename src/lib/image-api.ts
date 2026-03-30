@@ -29,7 +29,7 @@ export function generatePollinationsUrl(prompt: string): string {
   return `${baseUrl}?${params.toString()}`;
 }
 
-/** 2. Gemini로 이미지 프롬프트 생성 (모델 이름 수정됨) */
+/** 2. Gemini로 이미지 프롬프트 생성 (안정적인 v1 주소와 모델명 사용) */
 export async function generateImagePrompt(
   messages: { role: string; content: string }[],
   settings: AppSettings
@@ -38,8 +38,8 @@ export async function generateImagePrompt(
   let apiKey = getNextKey();
 
   const makeRequest = async (key: string): Promise<string> => {
-    // 💡 수정됨: 모델 이름을 'gemini-1.5-flash-latest'로 변경하여 v1beta 호환성 해결
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`;
+    // 💡 수정됨: v1beta 대신 더 안정적인 v1 주소를 사용하고, 모델명을 'gemini-1.5-flash'로 고정합니다.
+    const endpoint = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}`;
     
     const systemPrompt = `You are an expert AI image prompt engineer for the "FLUX" model.
 Consistent identity for "${settings.charName}". 
@@ -56,6 +56,7 @@ Output: ONLY the English prompt. Max 60 words.`;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: combinedPrompt }] }],
+        // v1/v1beta 공용 안전 설정
         safetySettings: [
           { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
           { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
