@@ -26,6 +26,7 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
         const description = avatarData.description || "";
         const urls: string[] = Array.isArray(avatarData.urls) ? avatarData.urls : [];
 
+        const toProxy = (u: string) => `/api/image-proxy?url=${encodeURIComponent(u)}`;
         const tryUrls = async (list: string[]): Promise<string | null> => {
           let idx = 0;
           return new Promise((resolve) => {
@@ -34,7 +35,8 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
                 resolve(null);
                 return;
               }
-              const testUrl = list[idx++];
+              const directUrl = list[idx++];
+              const testUrl = toProxy(directUrl);
               const img = new Image();
               let done = false;
               const cleanup = () => {
@@ -73,56 +75,44 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
 
         const working = urls.length > 0 ? await tryUrls(urls) : null;
         if (working) {
-          avatarUrl = working;
+          avatarUrl = working; // already proxied
         } else {
-          // Try AI-generated image (primary: pollinations.ai/p)
-          const seed = Math.floor(Math.random() * 1000000);
-          const primary = `${generatePollinationsUrl(
-            `masterpiece, high quality, anime style, close up portrait, ${data.name}, ${description || "official art"}`
-          )}&seed=${seed}`;
-          const alt = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-            `masterpiece, high quality, anime style, close up portrait, ${data.name}, ${description || "official art"}`
-          )}?width=1024&height=1024&nologo=true&seed=${seed}`;
-
-          const testOne = (u: string) =>
-            new Promise<string | null>((resolve) => {
-              const img = new Image();
-              let done = false;
-              const cleanup = () => {
-                img.onload = null;
-                img.onerror = null;
-              };
-              const timer = setTimeout(() => {
-                if (!done) {
-                  done = true;
-                  cleanup();
-                  resolve(null);
-                }
-              }, 3000);
-              img.onload = () => {
-                if (!done) {
-                  done = true;
-                  clearTimeout(timer);
-                  cleanup();
-                  resolve(u);
-                }
-              };
-              img.onerror = () => {
-                if (!done) {
-                  done = true;
-                  clearTimeout(timer);
-                  cleanup();
-                  resolve(null);
-                }
-              };
-              img.crossOrigin = "anonymous";
-              img.src = u;
-            });
-
-          avatarUrl = (await testOne(primary)) || (await testOne(alt)) || primary;
+          // Fallback to Wikipedia thumbnail (no AI, public content)
+          const queryWiki = async (host: "en" | "ko"): Promise<string | null> => {
+            const apiUrl = `https://${host}.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&pithumbsize=512&titles=${encodeURIComponent(data.name)}`;
+            const jsonResp = await fetch(`/api/json-proxy?url=${encodeURIComponent(apiUrl)}`);
+            if (!jsonResp.ok) return null;
+            const json = await jsonResp.json();
+            const pages = json?.query?.pages || {};
+            const pageId = Object.keys(pages)[0];
+            const thumb = pageId ? pages[pageId]?.thumbnail?.source : null;
+            return thumb ? toProxy(thumb) : null;
+          };
+          avatarUrl = (await queryWiki("en")) || (await queryWiki("ko")) || "";
+          if (!avatarUrl) {
+            // As a last resort, keep empty to let UI fallback handle it gracefully
+            console.warn("No usable image found via Wikipedia.");
+          }
         }
       } catch {
-        avatarUrl = generatePollinationsUrl(`masterpiece, high quality, anime style, close up portrait, ${data.name}`);
+        // On any exception, attempt Wikipedia (en → ko)
+        const toProxy = (u: string) => `/api/image-proxy?url=${encodeURIComponent(u)}`;
+        const tryWiki = async () => {
+          for (const host of ["en", "ko"] as const) {
+            try {
+              const apiUrl = `https://${host}.wikipedia.org/w/api.php?action=query&prop=pageimages&format=json&pithumbsize=512&titles=${encodeURIComponent(data.name)}`;
+              const jsonResp = await fetch(`/api/json-proxy?url=${encodeURIComponent(apiUrl)}`);
+              if (!jsonResp.ok) continue;
+              const json = await jsonResp.json();
+              const pages = json?.query?.pages || {};
+              const pageId = Object.keys(pages)[0];
+              const thumb = pageId ? pages[pageId]?.thumbnail?.source : null;
+              if (thumb) return toProxy(thumb);
+            } catch {}
+          }
+          return "";
+        };
+        avatarUrl = await tryWiki();
       }
 
       onSelect({
