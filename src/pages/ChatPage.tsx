@@ -32,7 +32,8 @@ const ChatPage = () => {
 
   useEffect(() => {
     const loadId = searchParams.get("load");
-    if (searchParams.get("new")) {
+    const isNew = searchParams.get("new");
+    if (isNew) {
       clearMessages(); setCurrentConvId(null);
       setSearchParams({}, { replace: true });
     } else if (loadId) {
@@ -112,24 +113,26 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    let systemPrompt = `너는 "${settings.charName}"를 연기하는 작가이다.
-성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 유저(나): ${settings.myName}
+    // 🌟 핵심: 풍부한 소설체 지침 구성
+    let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다.
+[기본 설정] 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 유저(나): ${settings.myName}
 
 [응답 규칙]
-1. 행동/나레이션은 *별표*로 감싸고 대사는 따옴표("")를 사용하라.
-2. 답변 길이: 모바일 가독성을 위해 **핵심 장면 위주로 아주 간결하게 1~2문단 정도**로만 답변하라.
-3. 지침: 현재 유저의 말과 행동에 대하여 "${settings.charName}"의 입장에서 반응하고 대화하라.`;
+1. 모든 행동, 표정, 미세한 심리 변화, 주변 배경 묘사를 별표(*)로 감싸 아주 풍부하고 생생하게 서술하라.
+2. 캐릭터의 대사는 반드시 따옴표("")를 사용하라.
+3. 지침: 절대로 간결하게 쓰지 마라. 장면 하나하나를 소설처럼 깊이 있게 묘사하며 이야기를 전개하라.
+4. 나레이션과 대사의 비율을 적절히 섞어 하나의 완성된 장면을 그려내라.`;
 
     if (isAuto) {
-      systemPrompt += `\n\n[자동 진행 지침] 유저의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 작성하고, 그에 대한 "${settings.charName}"의 반응까지 한꺼번에 작성하여 상황을 이어가라.`;
+      systemPrompt += `\n\n[특수 모드: 자동 진행] 유저(나)의 입력이 없으므로, 이전 맥락을 깊이 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 상세히 작성하고, 그에 반응하는 "${settings.charName}"의 감정과 움직임까지 한꺼번에 장문으로 서술하라.`;
     } else if (isSummon) {
-      systemPrompt += `\n\n[엑스트라 등장 지침] 현재 장면에 어울리는 새로운 조연을 등장시켜 짧게 대화를 이끌어라. 이름은 네가 맥락에 맞게 정하라.`;
+      systemPrompt += `\n\n[특수 모드: 엑스트라 소환] 현재 상황에 어울리는 새로운 조연을 등장시켜라. 그 인물의 외양과 말투를 풍부하게 묘사하며 상황을 이끌어라.`;
     } else {
-      systemPrompt += `\n\n[일반 대화 지침] 유저("${settings.myName}")가 보낸 메시지에 집중하라. 유저의 행동을 네가 임의로 결정하지 말고, 오직 유저의 입력에 대한 "${settings.charName}"의 반응과 이어지는 상황만 묘사하라.`;
+      systemPrompt += `\n\n[특수 모드: 일반 대화] 유저("${settings.myName}")의 입력에 집중하라. 유저의 행동을 네가 임의로 결정하지 말고, 오직 유저의 입력에 대한 "${settings.charName}"의 입체적인 반응과 그로 인해 변화하는 주변 상황만 상세히 묘사하라.`;
     }
 
     const history = messages.slice(-10).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
-    const combinedPrompt = `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
+    const combinedPrompt = `${systemPrompt}\n\n[최근 기록]\n${history}\n\nUser: ${content}\n\nAI:`;
 
     let fullContent = "";
     let assistantStarted = false;
@@ -156,7 +159,7 @@ const ChatPage = () => {
             }
           }
         },
-        onError: (err) => { // ⭐ eon is error 해결을 위해 onError 콜백 추가
+        onError: (err: string) => { // ⭐ e.onError is not a function 에러 해결용
           setIsLoading(false);
           toast.error(err);
         }
@@ -181,7 +184,7 @@ const ChatPage = () => {
   const handleGenerateImage = useCallback(async () => {
     if (isLoading || isGeneratingImage) return;
     setIsGeneratingImage(true);
-    const toastId = toast.loading("분석 중...");
+    const toastId = toast.loading("장면 분석 중...");
     try {
       const { imageUrl, prompt } = await generateImage(messages, settings, (status) => toast.loading(status, { id: toastId }));
       addMessage({ role: "assistant", content: encodeImageMessage(imageUrl, prompt) });
@@ -221,7 +224,7 @@ const ChatPage = () => {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-10">
         <button onClick={() => navigate("/settings")} className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity">
           <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold overflow-hidden">
             {settings.charAvatar ? (
@@ -234,21 +237,11 @@ const ChatPage = () => {
           </div>
         </button>
         <div className="flex gap-1 text-muted-foreground">
-          <button onClick={handleGenerateImage} className="p-2 hover:text-primary transition-colors">
-            {isGeneratingImage ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
-          </button>
-          <button onClick={handleSave} className="p-2 hover:text-primary transition-colors">
-            <Save size={18} />
-          </button>
-          <button onClick={() => navigate("/conversations")} className="p-2 hover:text-foreground transition-colors">
-            <List size={18} />
-          </button>
-          <button onClick={() => { if(window.confirm("대화를 초기화할까요?")) clearMessages(); }} className="p-2 hover:text-destructive transition-colors">
-            <Trash2 size={18} />
-          </button>
-          <button onClick={() => navigate("/settings")} className="p-2 hover:text-foreground transition-colors">
-            <Settings size={18} />
-          </button>
+          <button onClick={handleGenerateImage} className="p-2 hover:text-primary transition-colors">{isGeneratingImage ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}</button>
+          <button onClick={handleSave} className="p-2 hover:text-primary transition-colors"><Save size={18} /></button>
+          <button onClick={() => navigate("/conversations")} className="p-2 hover:text-foreground transition-colors"><List size={18} /></button>
+          <button onClick={() => { if(window.confirm("대화를 초기화할까요?")) clearMessages(); }} className="p-2 hover:text-destructive transition-colors"><Trash2 size={18} /></button>
+          <button onClick={() => navigate("/settings")} className="p-2 hover:text-foreground transition-colors"><Settings size={18} /></button>
         </div>
       </header>
 
@@ -267,7 +260,7 @@ const ChatPage = () => {
               onContextMenu={(e) => { e.preventDefault(); setContextMenu({ id: msg.id, x: e.clientX, y: e.clientY }); }}
             >
               {msg.role === "assistant" && !isExtra && (
-                 <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-[10px] text-primary-foreground font-bold mr-2 mt-1 shrink-0">
+                 <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-[10px] text-primary-foreground font-bold mr-2 mt-1 shrink-0 overflow-hidden">
                    {settings.charAvatar ? <img src={settings.charAvatar} className="w-full h-full rounded-full object-cover" alt="avatar" /> : charName[0]}
                  </div>
               )}
@@ -292,12 +285,8 @@ const ChatPage = () => {
           style={{ left: contextMenu.x, top: contextMenu.y }} 
           onClick={() => setContextMenu(null)}
         >
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted" onClick={() => { deleteMessage(contextMenu.id); toast.success("삭제되었습니다"); }}>
-            <X size={14} /> 삭제
-          </button>
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted" onClick={() => { deleteMessagesFrom(contextMenu.id); toast.success("이후 메시지 삭제됨"); }}>
-            <Scissors size={14} /> 여기까지 삭제
-          </button>
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted" onClick={() => { deleteMessage(contextMenu.id); toast.success("삭제됨"); }}><X size={14} /> 삭제</button>
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted" onClick={() => { deleteMessagesFrom(contextMenu.id); toast.success("이후 삭제됨"); }}><Scissors size={14} /> 여기까지 삭제</button>
         </div>
       )}
 
