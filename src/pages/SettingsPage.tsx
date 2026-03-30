@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, LogOut, Trash2 } from "lucide-react";
-import { useSettings, useConversations, type AppSettings } from "@/lib/store";
+import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash } from "lucide-react";
+import { useSettings, useConversations, type AppSettings, type SupportingCharacter } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
+import { generateUUID } from "@/lib/utils";
 import { toast } from "sonner";
 import ImageUploadField from "@/components/ImageUploadField";
 import CharacterSearch from "@/components/CharacterSearch";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
+import { searchWorld } from "@/lib/gemini-api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,19 +69,60 @@ const SettingsPage = () => {
   const { conversations, deleteConversation } = useConversations();
   const { user, signOut } = useAuth();
   const [form, setForm] = useState<AppSettings>(settings);
+  const [worldQuery, setWorldQuery] = useState("");
+  const [isWorldSearching, setIsWorldSearching] = useState(false);
 
   useEffect(() => {
     setForm(settings);
   }, [settings]);
 
-  const update = (key: keyof AppSettings, value: string) => {
+  const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const addSupportingCharacter = () => {
+    const newChar: SupportingCharacter = {
+      id: generateUUID(),
+      name: "",
+      persona: "",
+      avatar: "",
+    };
+    update("supportingCharacters", [...form.supportingCharacters, newChar]);
+  };
+
+  const removeSupportingCharacter = (id: string) => {
+    update("supportingCharacters", form.supportingCharacters.filter(c => c.id !== id));
+  };
+
+  const updateSupportingCharacter = (id: string, field: keyof SupportingCharacter, value: string) => {
+    update("supportingCharacters", form.supportingCharacters.map(c => 
+      c.id === id ? { ...c, [field]: value } : c
+    ));
   };
 
   const handleSave = () => {
     setSettings(form);
     toast.success("설정이 저장되었습니다!");
     navigate("/");
+  };
+
+  const handleWorldSearch = async () => {
+    if (!worldQuery.trim() || isWorldSearching) return;
+    setIsWorldSearching(true);
+    try {
+      const data = await searchWorld(worldQuery.trim());
+      if (!data.worldSetting) {
+        toast.error("세계관 정보를 생성하지 못했습니다. 다른 키워드로 시도해주세요.");
+        return;
+      }
+      update("worldSetting", data.worldSetting);
+      toast.success("세계관이 자동으로 채워졌습니다!");
+    } catch (e) {
+      console.error("World search error:", e);
+      toast.error("세계관 검색에 실패했습니다. 다시 시도해주세요.");
+    } finally {
+      setIsWorldSearching(false);
+    }
   };
 
   return (
@@ -171,7 +214,91 @@ const SettingsPage = () => {
           />
         </Section>
 
+        <Section title="조연 캐릭터 설정">
+          <div className="space-y-4">
+            {(form.supportingCharacters ?? []).map((char, index) => (
+              <div key={char.id} className="p-4 rounded-lg bg-muted/30 border border-border space-y-4 relative group">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Users size={14} className="text-primary" />
+                    조연 #{index + 1}
+                  </h3>
+                  <button
+                    onClick={() => removeSupportingCharacter(char.id)}
+                    className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <Trash size={14} />
+                  </button>
+                </div>
+                
+                <ImageUploadField
+                  label="조연 이미지"
+                  value={char.avatar}
+                  onChange={(v) => updateSupportingCharacter(char.id, "avatar", v)}
+                  hint="조연의 프로필 이미지"
+                />
+                
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">이름</label>
+                    <input
+                      type="text"
+                      value={char.name}
+                      onChange={(e) => updateSupportingCharacter(char.id, "name", e.target.value)}
+                      placeholder="조연 이름"
+                      className="w-full rounded-lg bg-muted px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">성격 및 역할</label>
+                    <textarea
+                      value={char.persona}
+                      onChange={(e) => updateSupportingCharacter(char.id, "persona", e.target.value)}
+                      placeholder="조연의 성격, 말투, 대화에서의 역할 등"
+                      rows={2}
+                      className="w-full rounded-lg bg-muted px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            <button
+              onClick={addSupportingCharacter}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border-2 border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-all active:scale-[0.98]"
+            >
+              <Plus size={16} />
+              <span className="text-sm font-medium">새 조연 추가하기</span>
+            </button>
+          </div>
+        </Section>
+
         <Section title="세계관 설정">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">세계관 검색 (자동 채우기)</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={worldQuery}
+                onChange={(e) => setWorldQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleWorldSearch()}
+                placeholder="세계관/작품/배경 키워드 (예: 나루토 세계관, 사이버펑크 도시, 마법학원)"
+                className="flex-1 rounded-lg bg-muted px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <button
+                type="button"
+                onClick={handleWorldSearch}
+                disabled={!worldQuery.trim() || isWorldSearching}
+                className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-40 active:scale-95 transition-transform flex items-center gap-1.5"
+              >
+                {isWorldSearching ? <span className="inline-flex items-center gap-1.5"><span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-primary-foreground/70 border-t-transparent rounded-full" />검색</span> : "검색"}
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              키워드를 입력하면 시대·규칙·분위기·주요 장소가 포함된 세계관 설명을 자동으로 생성합니다.
+            </p>
+          </div>
           <Field
             label="세계관"
             value={form.worldSetting}

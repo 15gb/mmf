@@ -6,6 +6,7 @@ import { AuthProvider } from "@/lib/auth-context";
 import Index from "./pages/Index.tsx";
 import SettingsPage from "./pages/SettingsPage.tsx";
 import ConversationListPage from "./pages/ConversationListPage.tsx";
+import AuthCallback from "./pages/AuthCallback.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -20,6 +21,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/conversations" element={<ConversationListPage />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

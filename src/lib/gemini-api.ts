@@ -1,0 +1,192 @@
+import { useApiKeyStore } from './api-key-store';
+
+export interface CharacterInfo {
+  name: string;
+  persona: string;
+  speech_style?: string;
+  greeting: string;
+  avatar: string;
+}
+
+export interface WorldInfo {
+  name: string;
+  summary: string;
+  worldSetting: string;
+  keyRules?: string[];
+  locations?: string[];
+  tone?: string;
+}
+
+export async function searchCharacter(query: string): Promise<CharacterInfo> {
+  const { getNextKey, rotateKey } = useApiKeyStore.getState();
+  let apiKey = getNextKey();
+
+  const makeRequest = async (key: string): Promise<CharacterInfo> => {
+    if (!key) {
+      throw new Error("No Gemini API key available.");
+    }
+
+    const systemPrompt = `You are a character database expert for anime, manga, games, and comics. When given a character name, return a JSON object with:
+- "name": the character's canonical Korean name (or original name if no Korean name exists)
+- "persona": a detailed Korean description of their personality, speech style, and behavior (2-3 sentences). Write it as instructions for an AI to roleplay as this character.
+- "speech_style": a detailed Korean description of this character's unique speech patterns, verbal habits, catchphrases, signature expressions, and notable dialogue lines (2-4 sentences). Include specific examples of how they talk, any speech quirks (e.g., ending particles, accent, slang), and 1-2 iconic quotes if available.
+- "greeting": a characteristic greeting message in Korean that this character would say, matching their personality and speech style (1-2 sentences). Use the character's actual speech style.
+- "avatar_urls": an array of 3-5 strings, each being a publicly accessible DIRECT image URL of the character (ending in .jpg, .png, .webp).
+- "visual_description": a detailed English description of the character's appearance (hair, eyes, clothes) for image generation fallback.
+
+Respond ONLY with valid JSON. No markdown, no explanation.`;
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: `System Instruction: ${systemPrompt}\n\nUser Query: ${query}` }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+        }
+      }),
+    });
+
+    if (response.status === 429) {
+      console.warn(`API key ending in ...${key.slice(-4)} is rate-limited. Rotating.`);
+      rotateKey();
+      const newApiKey = useApiKeyStore.getState().getNextKey();
+      if (newApiKey === key) { // All keys have been tried and failed
+        throw new Error("All available Gemini API keys are rate-limited.");
+      }
+      return makeRequest(newApiKey);
+    }
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      console.error("Gemini API Error (Character Search):", errData);
+      throw new Error(errData.error?.message || `Gemini API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    
+    try {
+      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      
+       return {
+         name: parsed.name || query,
+         persona: parsed.persona || "",
+         speech_style: parsed.speech_style || "",
+         greeting: parsed.greeting || "",
+         avatar: JSON.stringify({
+           urls: parsed.avatar_urls || [],
+           description: parsed.visual_description || ""
+         }), 
+       };
+    } catch (e) {
+      console.error("JSON parse error:", e, content);
+      // Return a valid, empty CharacterInfo object on parse failure
+      return { 
+        name: query, 
+        persona: "", 
+        greeting: "", 
+        avatar: JSON.stringify({ urls: [], description: "" }),
+        speech_style: ""
+      };
+    }
+  };
+
+  return makeRequest(apiKey);
+}
+
+export async function searchWorld(query: string): Promise<WorldInfo> {
+  const { getNextKey, rotateKey } = useApiKeyStore.getState();
+  let apiKey = getNextKey();
+
+  const makeRequest = async (key: string): Promise<WorldInfo> => {
+    if (!key) {
+      throw new Error("No Gemini API key available.");
+    }
+
+    const systemPrompt = `You are a worldbuilding encyclopedia and RPG scenario designer.
+When given a world/setting keyword (anime/game/comic/novel setting or an original idea), return ONLY valid JSON with:
+- "name": the canonical Korean name of the world/setting (or original title)
+- "summary": a concise Korean summary (1-2 sentences)
+- "worldSetting": a Korean description suitable to paste into an AI roleplay system prompt (4-8 lines, newline-separated). Include era, technology/magic level, factions, typical locations, and the vibe.
+- "tone": optional, Korean tone keywords (e.g., 다크 판타지, 코미디, 하이틴)
+- "keyRules": optional array of 3-6 Korean bullet-like strings describing core rules (magic rules, social rules, hazards)
+- "locations": optional array of 3-6 major location names in Korean
+
+Respond ONLY with JSON. No markdown. No explanation.`;
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: `System Instruction: ${systemPrompt}\n\nUser Query: ${query}` }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 1024,
+        },
+      }),
+    });
+
+    if (response.status === 429) {
+      rotateKey();
+      const newApiKey = useApiKeyStore.getState().getNextKey();
+      if (newApiKey === key) {
+        throw new Error("All available Gemini API keys are rate-limited.");
+      }
+      return makeRequest(newApiKey);
+    }
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error?.message || `Gemini API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+
+    try {
+      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      return {
+        name: parsed.name || query,
+        summary: parsed.summary || "",
+        worldSetting: parsed.worldSetting || "",
+        tone: parsed.tone || undefined,
+        keyRules: Array.isArray(parsed.keyRules) ? parsed.keyRules : undefined,
+        locations: Array.isArray(parsed.locations) ? parsed.locations : undefined,
+      };
+    } catch {
+      return {
+        name: query,
+        summary: "",
+        worldSetting: "",
+      };
+    }
+  };
+
+  return makeRequest(apiKey);
+}

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Search, Loader2, Sparkles } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { searchCharacter } from "@/lib/gemini-api";
+import { generatePollinationsUrl } from "@/lib/image-api";
+import { toast } from "sonner";
 
 interface CharacterSearchProps {
   onSelect: (data: { name: string; persona: string; greeting: string; avatar: string }) => void;
@@ -15,19 +17,38 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
     setIsSearching(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("character-search", {
-        body: { query: query.trim() },
-      });
-
-      if (error) throw error;
+      const data = await searchCharacter(query.trim());
 
       const persona = [data.persona, data.speech_style].filter(Boolean).join("\n\n[말투 및 대사 스타일]\n");
+      
+      // ORB 에러 및 로딩 실패를 방지하기 위해 항상 Pollinations.ai로 고정 생성
+      // 인터넷 이미지는 사이트마다 차단 정책이 달라 안정성이 떨어짐
+      let avatarUrl = "";
+      
+      try {
+        const avatarData = JSON.parse(data.avatar);
+        const description = avatarData.description || "";
+        
+        console.log("Generating high-quality avatar via Pollinations.ai...");
+        // 캐릭터의 특징을 최대한 반영하여 고화질 애니메이션 스타일로 생성
+        const prompt = `masterpiece, high quality, anime style, close up portrait, ${data.name}, ${description || "official art"}`;
+        avatarUrl = generatePollinationsUrl(prompt);
+        
+        console.log("Avatar URL generated:", avatarUrl);
+      } catch (e) {
+        // 파싱 실패 시 이름을 기반으로 생성
+        console.warn("Fallback to name-based generation");
+        avatarUrl = generatePollinationsUrl(`masterpiece, high quality, anime style, close up portrait, ${data.name}`);
+      }
+
       onSelect({
         name: data.name || "",
         persona: persona || "",
         greeting: data.greeting || "",
-        avatar: data.avatar || "",
+        avatar: avatarUrl,
       });
+      
+      toast.success("캐릭터 정보와 이미지를 성공적으로 불러왔습니다!");
     } catch (e) {
       console.error("Character search error:", e);
       alert("캐릭터 검색에 실패했습니다. 다시 시도해주세요.");

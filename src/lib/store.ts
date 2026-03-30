@@ -1,12 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
+import { generateUUID } from "./utils";
 
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: number;
+}
+
+export interface SupportingCharacter {
+  id: string;
+  name: string;
+  persona: string;
+  avatar: string;
 }
 
 export interface AppSettings {
@@ -19,6 +27,7 @@ export interface AppSettings {
   note: string;
   charAvatar: string;
   chatBackground: string;
+  supportingCharacters: SupportingCharacter[];
 }
 
 export interface Conversation {
@@ -28,6 +37,9 @@ export interface Conversation {
   settings?: AppSettings;
   createdAt: number;
   updatedAt: number;
+  // 배경 및 캐릭터 이미지 URL 추가
+  chatBackground?: string;
+  charAvatar?: string;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -40,7 +52,18 @@ const DEFAULT_SETTINGS: AppSettings = {
   note: "",
   charAvatar: "",
   chatBackground: "",
+  supportingCharacters: [],
 };
+
+function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
+  const base = { ...DEFAULT_SETTINGS, ...(input || {}) } as AppSettings;
+  return {
+    ...base,
+    supportingCharacters: Array.isArray(input?.supportingCharacters)
+      ? (input.supportingCharacters as SupportingCharacter[])
+      : [],
+  };
+}
 
 function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -72,8 +95,21 @@ function saveToStorage(key: string, value: unknown) {
 }
 
 // Convert DB row to AppSettings
-function rowToSettings(row: any): AppSettings {
+function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
+  let supportingCharacters = currentSettings.supportingCharacters;
+  if (row.supporting_characters) {
+    try {
+      const parsed =
+        typeof row.supporting_characters === "string"
+          ? JSON.parse(row.supporting_characters)
+          : row.supporting_characters;
+      supportingCharacters = Array.isArray(parsed) ? parsed : currentSettings.supportingCharacters;
+    } catch {
+      supportingCharacters = currentSettings.supportingCharacters;
+    }
+  }
   return {
+    ...currentSettings,
     myName: row.my_name || "",
     myIntro: row.my_intro || "",
     charName: row.char_name || "AI 캐릭터",
@@ -83,13 +119,14 @@ function rowToSettings(row: any): AppSettings {
     note: row.note || "",
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
+    supportingCharacters,
   };
 }
 
 export function useSettings() {
   const { user } = useAuth();
   const [settings, setSettingsState] = useState<AppSettings>(() =>
-    loadFromStorage("app-settings", DEFAULT_SETTINGS)
+    normalizeSettings(loadFromStorage<Partial<AppSettings>>("app-settings", DEFAULT_SETTINGS))
   );
   const [dbLoaded, setDbLoaded] = useState(false);
 
@@ -106,7 +143,7 @@ export function useSettings() {
         .eq("user_id", user.id)
         .maybeSingle();
       if (data) {
-        const s = rowToSettings(data);
+        const s = rowToSettings(data, settings);
         setSettingsState(s);
         saveToStorage("app-settings", s);
       }
@@ -115,23 +152,28 @@ export function useSettings() {
   }, [user]);
 
   const setSettings = useCallback(async (updated: AppSettings) => {
-    setSettingsState(updated);
-    saveToStorage("app-settings", updated);
+    const normalized = normalizeSettings(updated);
+    setSettingsState(normalized);
+    saveToStorage("app-settings", normalized);
 
     if (user) {
-      const payload = {
+      const payload: any = {
         user_id: user.id,
-        my_name: updated.myName,
-        my_intro: updated.myIntro,
-        char_name: updated.charName,
-        char_persona: updated.charPersona,
-        char_greeting: updated.charGreeting,
-        world_setting: updated.worldSetting,
-        note: updated.note,
-        char_avatar: updated.charAvatar,
-        chat_background: updated.chatBackground,
+        my_name: normalized.myName,
+        my_intro: normalized.myIntro,
+        char_name: normalized.charName,
+        char_persona: normalized.charPersona,
+        char_greeting: normalized.charGreeting,
+        world_setting: normalized.worldSetting,
+        note: normalized.note,
+        char_avatar: normalized.charAvatar,
+        chat_background: normalized.chatBackground,
         updated_at: new Date().toISOString(),
       };
+      
+      // If we added a column for this in DB later, we'd add it here
+      // payload.supporting_characters = updated.supportingCharacters;
+
       await supabase
         .from("user_settings")
         .upsert(payload, { onConflict: "user_id" });
@@ -153,7 +195,7 @@ export function useMessages() {
   const addMessage = useCallback((msg: Omit<ChatMessage, "id" | "timestamp">) => {
     const newMsg: ChatMessage = {
       ...msg,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       timestamp: Date.now(),
     };
     setMessagesState((prev) => [...prev, newMsg]);
@@ -237,23 +279,30 @@ export function useConversations() {
     }
   }, [conversations]);
 
-  const saveConversation = useCallback(async (messages: ChatMessage[], existingId?: string, settings?: AppSettings) => {
+  const saveConversation = useCallback(async (messages: ChatMessage[], options: { existingId?: string, title?: string, settings?: AppSettings }) => {
     if (messages.length === 0) return null;
 
-    const firstUserMsg = messages.find((m) => m.role === "user");
-    const title = firstUserMsg ? firstUserMsg.content.slice(0, 30) : "새 대화";
     const now = Date.now();
+    const newTitle = options.title || messages.find((m) => m.role === "user")?.content.slice(0, 30) || "새 대화";
 
-    const lightSettings = settings ? {
-      ...settings,
-      charAvatar: settings.charAvatar && settings.charAvatar.length > 500 ? "" : settings.charAvatar,
-      chatBackground: settings.chatBackground && settings.chatBackground.length > 500 ? "" : settings.chatBackground,
+    const lightSettings = options.settings ? {
+      ...options.settings,
+      charAvatar: options.settings.charAvatar && options.settings.charAvatar.length > 500 ? "" : options.settings.charAvatar,
+      chatBackground: options.settings.chatBackground && options.settings.chatBackground.length > 500 ? "" : options.settings.chatBackground,
     } : undefined;
 
-    if (existingId) {
+    if (options.existingId) {
       setConversationsState((prev) =>
         prev.map((c) =>
-          c.id === existingId ? { ...c, messages, title, settings: lightSettings || c.settings, updatedAt: now } : c
+          c.id === options.existingId ? { 
+            ...c, 
+            messages, 
+            title: newTitle, 
+            settings: lightSettings || c.settings, 
+            chatBackground: lightSettings?.chatBackground, 
+            charAvatar: lightSettings?.charAvatar, 
+            updatedAt: now 
+          } : c
         )
       );
 
@@ -262,22 +311,26 @@ export function useConversations() {
           .from("conversations")
           .update({
             messages: messages as any,
-            title,
+            title: newTitle,
             settings: (lightSettings || {}) as any,
+            chat_background: lightSettings?.chatBackground,
+            char_avatar: lightSettings?.charAvatar,
             updated_at: new Date().toISOString(),
           })
-          .eq("id", existingId)
+          .eq("id", options.existingId)
           .eq("user_id", user.id);
       }
-      return existingId;
+      return options.existingId;
     }
 
-    const newId = crypto.randomUUID();
+    const newId = generateUUID();
     const newConv: Conversation = {
       id: newId,
-      title,
+      title: newTitle,
       messages,
       settings: lightSettings,
+      chatBackground: lightSettings?.chatBackground,
+      charAvatar: lightSettings?.charAvatar,
       createdAt: now,
       updatedAt: now,
     };
@@ -289,9 +342,11 @@ export function useConversations() {
         .insert({
           id: newId,
           user_id: user.id,
-          title,
+          title: newTitle,
           messages: messages as any,
           settings: (lightSettings || {}) as any,
+          chat_background: lightSettings?.chatBackground,
+          char_avatar: lightSettings?.charAvatar,
         });
     }
 

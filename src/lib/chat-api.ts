@@ -1,73 +1,74 @@
-import type { AppSettings } from "./store";
+import { useApiKeyStore } from './api-key-store';
 
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
-
-interface StreamChatOptions {
-  messages: { role: "user" | "assistant"; content: string }[];
-  settings: AppSettings;
-  onDelta: (text: string) => void;
+export interface StreamChatOptions {
+  message: string;
+  onDelta: (delta: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
 }
 
-export async function streamChat({ messages, settings, onDelta, onDone, onError }: StreamChatOptions) {
-  try {
-    const resp = await fetch(CHAT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
-      body: JSON.stringify({ messages, settings }),
-    });
+export const streamChat = async (options: StreamChatOptions) => {
+  const { getNextKey, rotateKey } = useApiKeyStore.getState();
+  let apiKey = getNextKey();
 
-    if (!resp.ok) {
-      const errorData = await resp.json().catch(() => ({ error: "알 수 없는 오류" }));
-      onError(errorData.error || `오류 발생 (${resp.status})`);
-      return;
-    }
+  const makeRequest = async (key: string): Promise<void> => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:streamGenerateContent?alt=sse&key=${key}`;
+    
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ contents: [{ parts: [{ text: options.message }] }] }),
+      });
 
-    if (!resp.body) {
-      onError("스트리밍을 시작할 수 없습니다.");
-      return;
-    }
+      if (response.status === 429) { // 할당량 초과 에러
+        rotateKey();
+        apiKey = useApiKeyStore.getState().getNextKey();
+        if (apiKey === key) { // 모든 키를 다 돌았을 경우
+          throw new Error("모든 API 키의 할당량을 소진했습니다.");
+        }
+        return makeRequest(apiKey); // 다음 키로 재귀 호출
+      }
 
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+      if (!response.ok || !response.body) {
+        const errorText = await response.text();
+        throw new Error(`API 오류: ${response.status} ${response.statusText} - ${errorText}`);
+      }
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      buffer += decoder.decode(value, { stream: true });
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      let newlineIndex: number;
-      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-        let line = buffer.slice(0, newlineIndex);
-        buffer = buffer.slice(newlineIndex + 1);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-        if (line.endsWith("\r")) line = line.slice(0, -1);
-        if (line.startsWith(":") || line.trim() === "") continue;
-        if (!line.startsWith("data: ")) continue;
-
-        const jsonStr = line.slice(6).trim();
-        if (jsonStr === "[DONE]") break;
-
-        try {
-          const parsed = JSON.parse(jsonStr);
-          // OpenAI-compatible format: delta.content
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) onDelta(content);
-        } catch {
-          // partial JSON, skip
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const json = JSON.parse(line.substring(6));
+              const delta = json.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (delta) {
+                options.onDelta(delta);
+              }
+            } catch (e) {
+              console.warn("스트림 데이터 파싱 오류:", e);
+            }
+          }
         }
       }
+      options.onDone();
+    } catch (error) {
+      console.error("스트리밍 채팅 오류:", error);
+      options.onError(error instanceof Error ? error.message : String(error));
     }
+  };
 
-    onDone();
-  } catch (e) {
-    console.error("Stream error:", e);
-    onError("네트워크 오류가 발생했습니다.");
-  }
-}
+  await makeRequest(apiKey);
+};

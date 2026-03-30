@@ -32,7 +32,18 @@ const ImageUploadField = ({ label, value, onChange, hint, previewClass = "w-20 h
       <div className="flex items-center gap-3">
         {value ? (
           <div className="relative group">
-            <img src={value} alt={label} className={`${previewClass} object-cover`} />
+            <img 
+              key={value}
+              src={value} 
+              alt={label} 
+              className={`${previewClass} object-cover bg-muted`} 
+              loading="eager"
+              onError={(e) => {
+                console.error("Image load failed:", value);
+                // If image fails to load, clear it or show a placeholder
+                (e.target as HTMLImageElement).src = `https://via.placeholder.com/150?text=Error`;
+              }}
+            />
             <button
               type="button"
               onClick={() => onChange("")}

@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Download, Eye, EyeOff, RefreshCw, Loader2 } from "lucide-react";
+import { Download, Eye, EyeOff, RefreshCw, Loader2, AlertCircle } from "lucide-react";
 import { generatePollinationsUrl } from "@/lib/image-api";
+import { useSettings } from "@/lib/store";
+import { toast } from "sonner";
 
 interface ImageCardProps {
   url: string;
@@ -8,6 +10,7 @@ interface ImageCardProps {
 }
 
 const ImageCard = ({ url, prompt }: ImageCardProps) => {
+  const { settings } = useSettings();
   const [showPrompt, setShowPrompt] = useState(false);
   const [imgSrc, setImgSrc] = useState(url);
   const [loading, setLoading] = useState(true);
@@ -16,16 +19,9 @@ const ImageCard = ({ url, prompt }: ImageCardProps) => {
 
   const handleDownload = async () => {
     try {
-      const resp = await fetch(imgSrc);
-      const blob = await resp.blob();
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `generated-${Date.now()}.png`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    } catch {
-      // Fallback: open in new tab
       window.open(imgSrc, "_blank");
+    } catch (e) {
+      console.error("Download error:", e);
     }
   };
 
@@ -33,42 +29,55 @@ const ImageCard = ({ url, prompt }: ImageCardProps) => {
     setRetrying(true);
     setError(false);
     setLoading(true);
-    setImgSrc(generatePollinationsUrl(prompt));
+    const newUrl = generatePollinationsUrl(prompt);
+    setImgSrc(newUrl);
+  };
+
+  const handleError = () => {
+    setLoading(false);
+    setError(true);
+    setRetrying(false);
+    toast.error("이미지 생성에 실패했습니다. 캐릭터 기본 이미지를 표시합니다.");
+    
+    // 에러 발생 시 캐릭터 기본 이미지로 대체 (있는 경우)
+    if (settings.charAvatar && !settings.charAvatar.startsWith("data:")) {
+      setImgSrc(settings.charAvatar);
+    }
   };
 
   return (
     <div className="rounded-xl overflow-hidden bg-muted/50 border border-border max-w-[280px]">
       <div className="relative aspect-square">
-        {loading && !error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-muted/80">
-            <Loader2 size={24} className="animate-spin text-muted-foreground" />
+        {loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/80 z-20 gap-2">
+            <Loader2 size={24} className="animate-spin text-primary" />
+            <p className="text-[10px] text-muted-foreground animate-pulse font-medium">캐릭터 이미지를 생성 중입니다...</p>
           </div>
         )}
-        {error ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/80 p-4">
-            <p className="text-xs text-muted-foreground text-center">이미지를 불러올 수 없습니다</p>
+        {error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/80 p-4 z-20">
+            <AlertCircle size={24} className="text-destructive/50" />
+            <p className="text-[11px] text-muted-foreground text-center leading-tight">이미지를 불러올 수 없습니다</p>
             <button
               onClick={handleRetry}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
+              className="mt-1 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-opacity active:scale-95"
             >
               <RefreshCw size={12} className={retrying ? "animate-spin" : ""} />
               다시 시도
             </button>
           </div>
-        ) : null}
+        )}
         <img
           src={imgSrc}
-          alt="AI 생성 이미지"
-          className={`w-full h-full object-cover transition-opacity duration-300 ${loading || error ? "opacity-0" : "opacity-100"}`}
+          alt={prompt}
+          crossOrigin="anonymous"
+          className={`w-full h-full object-cover transition-opacity duration-500 ${loading || error ? "opacity-0" : "opacity-100"}`}
           onLoad={() => {
             setLoading(false);
             setError(false);
             setRetrying(false);
           }}
-          onError={() => {
-            setLoading(false);
-            setError(true);
-          }}
+          onError={handleError}
         />
       </div>
 

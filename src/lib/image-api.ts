@@ -1,102 +1,104 @@
 import type { AppSettings } from "./store";
+import { useApiKeyStore } from './api-key-store';
 
-const PROMPT_GEN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-image-prompt`;
-const POLLINATIONS_API_KEY = "sk_UHjSVdoCaZpsyXS5N77bYrQt3j4BqaYO";
+const POLLINATIONS_API_KEY = import.meta.env.VITE_POLLINATIONS_API_KEY;
 
-/** Sanitize prompt: remove newlines, special chars, collapse to single line */
 function sanitizePrompt(prompt: string): string {
   return prompt
-    .replace(/[\r\n]+/g, ", ")
-    .replace(/["']/g, "")
+    .replace(/[][{}()*#@!]/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 }
 
-/** Generate a Pollinations.ai image URL from a prompt */
+/** Generate a Pollinations.ai V2 image URL from a prompt */
 export function generatePollinationsUrl(prompt: string): string {
+  if (!POLLINATIONS_API_KEY) {
+    throw new Error("Pollinations API 키가 설정되지 않았습니다. VITE_POLLINATIONS_API_KEY를 설정해주세요.");
+  }
   const clean = sanitizePrompt(prompt);
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(clean)}?api_key=${POLLINATIONS_API_KEY}&width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&model=flux&nologo=true`;
+  // V2 API Endpoint: https://gen.pollinations.ai/image/
+  // URL Format: https://gen.pollinations.ai/image/${encodeURIComponent(prompt)}?model=flux&width=1024&height=1024&seed=0&enhance=false&key=${POLLINATIONS_API_KEY}
+  return `https://gen.pollinations.ai/image/${encodeURIComponent(clean)}?model=flux&width=1024&height=1024&seed=0&enhance=false&key=${POLLINATIONS_API_KEY}`;
 }
 
-/** Generate an English prompt from conversation context via edge function */
+/** Generate an English prompt from conversation context via Gemini */
 export async function generateImagePrompt(
   messages: { role: string; content: string }[],
   settings: AppSettings
 ): Promise<string> {
-  const resp = await fetch(PROMPT_GEN_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-    },
-    body: JSON.stringify({ messages, settings }),
-  });
+  const { getNextKey, rotateKey } = useApiKeyStore.getState();
+  let apiKey = getNextKey();
 
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: "프롬프트 생성 실패" }));
-    throw new Error(err.error || "프롬프트 생성 실패");
-  }
+  const makeRequest = async (key: string): Promise<string> => {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
+    
+    // 캐릭터 프로필 및 맥락 반영을 위한 강화된 시스템 프롬프트
+    const systemPrompt = `You are an expert AI image prompt engineer.
+Your task is to generate a high-quality English prompt for the "FLUX" model.
 
-  const data = await resp.json();
-  return data.prompt;
-}
+STRICT INSTRUCTIONS:
+1. SUBJECT: Maintain consistent visual identity of "${settings.charName}".
+2. CHARACTER PROFILE: ${settings.charPersona}
+3. WORLD SETTING: ${settings.worldSetting}
+4. VISUAL REFERENCE: Use this description for the character's appearance: ${settings.charAvatar && settings.charAvatar.length < 500 ? settings.charAvatar : "Anime style character"}.
+5. CURRENT CONTEXT: Capture the mood, action, and environment from the recent conversation.
+6. STYLE: High-quality anime style, masterpiece, 4k, detailed background.
+7. OUTPUT: Return ONLY the final English prompt text. Max 60 words. No "Negative Prompt", no explanation.
 
-/** Preload image with retry */
-function preloadImage(prompt: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let attempt = 0;
+Example Input: "Smile at me"
+Example Output: "Masterpiece anime style, close up of ${settings.charName} with a warm gentle smile, eyes sparkling, ${settings.worldSetting} background, high quality, 4k"`;
 
-    function tryLoad() {
-      attempt++;
-      const url = generatePollinationsUrl(prompt);
+    const history = messages.map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
+    const combinedPrompt = `${systemPrompt}\n\n[Recent Conversation History]\n${history}\n\nGenerate a detailed prompt based on the latest context:`;
 
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => resolve(url);
-      img.onerror = () => {
-        if (attempt < 3) {
-          console.warn(`Image load attempt ${attempt} failed, retrying...`);
-          tryLoad();
-        } else {
-          reject(new Error("이미지 로딩 실패 (3회 시도)"));
-        }
-      };
-      img.src = url;
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: combinedPrompt }] }],
+        generationConfig: { temperature: 0.8, topK: 40, topP: 0.95, maxOutputTokens: 150 },
+      }),
+    });
+
+    if (resp.status === 429) {
+      rotateKey();
+      apiKey = useApiKeyStore.getState().getNextKey();
+      if (apiKey === key) throw new Error("모든 API 키의 할당량을 소진했습니다.");
+      return makeRequest(apiKey);
     }
 
-    tryLoad();
-  });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || `이미지 프롬프트 생성 실패: ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text.trim() || "";
+  };
+
+  return makeRequest(apiKey);
 }
 
-/** Full pipeline: generate prompt -> build Pollinations URL -> preload image with retries */
 export async function generateImage(
   messages: { role: string; content: string }[],
   settings: AppSettings,
-  onStatus?: (status: string) => void,
+  onStatusChange: (status: string) => void
 ): Promise<{ imageUrl: string; prompt: string }> {
-  onStatus?.("문맥을 분석하여 이미지를 그리고 있습니다...");
-
+  onStatusChange("캐릭터 특징 및 맥락 분석 중...");
   const prompt = await generateImagePrompt(messages, settings);
+  if (!prompt) throw new Error("이미지 프롬프트를 생성하지 못했습니다.");
 
-  onStatus?.("이미지 생성 중...");
-
-  const imageUrl = await preloadImage(prompt);
+  onStatusChange("캐릭터 이미지를 생성 중입니다...");
+  const imageUrl = generatePollinationsUrl(prompt);
 
   return { imageUrl, prompt };
 }
 
-/** Helper: encode image data into a special message format */
-export function encodeImageMessage(url: string, prompt: string): string {
-  return `__IMG__${JSON.stringify({ url, prompt })}__IMG__`;
-}
-
-/** Helper: decode image message, returns null if not an image message */
-export function decodeImageMessage(content: string): { url: string; prompt: string } | null {
-  const match = content.match(/^__IMG__(.+)__IMG__$/s);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[1]);
-  } catch {
-    return null;
+export const encodeImageMessage = (url: string, prompt: string) => `![${prompt}](${url})`;
+export const decodeImageMessage = (content: string): { url: string; prompt: string } | null => {
+  const match = content.match(/^!\[(.*)\]\((.*)\)$/);
+  if (match) {
+    return { prompt: match[1], url: match[2] };
   }
-}
+  return null;
+};
