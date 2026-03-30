@@ -71,23 +71,20 @@ const ChatPage = () => {
 
   const handleSave = useCallback(async () => {
     if (messages.length === 0) { toast.error("저장할 대화가 없습니다"); return; }
-    const currentTitle = getDefaultSaveTitle();
-
+    const title = getDefaultSaveTitle();
     if (currentConvId) {
-      await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings });
-      toast.success("대화가 업데이트되었습니다");
+      await saveConversation(messages, { existingId: currentConvId, title: title, settings });
+      toast.success("업데이트 완료");
       return;
     }
-
-    const duplicate = allConversations.find(c => c.title === currentTitle);
-    
+    const duplicate = allConversations.find(c => c.title === title);
     if (duplicate) {
-      if (window.confirm(`"${currentTitle}" 이름의 대화가 이미 있습니다. 덮어쓰시겠습니까?`)) {
-        await saveConversation(messages, { existingId: duplicate.id, title: currentTitle, settings });
+      if (window.confirm(`"${title}" 이름의 대화가 이미 있습니다. 덮어쓰시겠습니까?`)) {
+        await saveConversation(messages, { existingId: duplicate.id, title, settings });
         setCurrentConvId(duplicate.id);
-        toast.success("기존 대화에 덮어씌웠습니다");
+        toast.success("덮어쓰기 완료");
       } else {
-        const newTitle = window.prompt("새로운 제목을 입력하세요:", `${currentTitle} (1)`);
+        const newTitle = window.prompt("새로운 제목:", `${title} (1)`);
         if (newTitle) {
           const id = await saveConversation(messages, { title: newTitle, settings });
           if (id) setCurrentConvId(id);
@@ -95,7 +92,7 @@ const ChatPage = () => {
         }
       }
     } else {
-      const id = await saveConversation(messages, { title: currentTitle, settings });
+      const id = await saveConversation(messages, { title, settings });
       if (id) { setCurrentConvId(id); toast.success("대화가 저장되었습니다"); }
     }
   }, [messages, allConversations, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
@@ -104,6 +101,7 @@ const ChatPage = () => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
     const content = (isAuto || isSummon) ? "" : (overrideContent !== undefined ? overrideContent : input.trim());
+    
     if (!isAuto && !isSummon && content === "" && overrideContent === undefined) return;
     if (isLoading) return;
 
@@ -114,19 +112,22 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다.
+    // 기본 시스템 프롬프트 (정상 대화 지침)
+    let systemPrompt = `너는 "${settings.charName}"를 연기하는 작가이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 유저(나): ${settings.myName}
 
 [응답 규칙]
-1. 모든 행동과 환경 묘사는 반드시 별표(*)로 감싸라.
-2. 캐릭터의 대사는 반드시 따옴표("")를 사용하라.
-3. 답변 길이: 모바일 가독성을 위해 **핵심 장면 위주로 아주 간결하게 1~2문단 정도**로만 답변하라. (기존보다 절반 분량)
-4. 나레이션 텍스트는 유저와 구분되도록 별표 처리를 철저히 하라.`;
+1. 행동/나레이션은 *별표*로 감싸고 대사는 따옴표("")를 사용하라.
+2. 답변 길이: 핵심 장면 위주로 간결하게 1~2문단 정도로 답변하라.
+3. 지침: 현재 유저의 말과 행동에 대하여 "${settings.charName}"의 입장에서 반응하고 대화하라.`;
 
+    // 상황별 지침 추가
     if (isAuto) {
-      systemPrompt += `\n[특수 지침: 자동 진행] 유저(나)의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 작성하여 이야기를 이어가라. 유저의 행동 이후에 반응하는 "${settings.charName}"의 모습까지 한꺼번에 짧고 간결하게 한 블록에 담아라.`;
+      systemPrompt += `\n\n[자동 진행 모드] 유저의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 네가 대신 작성하고, 그에 대한 "${settings.charName}"의 반응까지 한꺼번에 작성하여 상황을 이어가라.`;
     } else if (isSummon) {
-      systemPrompt += `\n[특수 지침: 엑스트라 소환] 현재 상황에 어울리는 새로운 조연(엑스트라)을 반드시 등장시켜라. 이름은 맥락에 맞게 네가 정하고, 그 인물의 입장에서 짧게 대화와 행동을 묘사하라.`;
+      systemPrompt += `\n\n[엑스트라 등장 모드] 상황에 맞는 조연을 등장시켜 짧게 대화를 이끌어라.`;
+    } else {
+      systemPrompt += `\n\n[일반 대화 모드] 유저("${settings.myName}")가 보낸 메시지에 집중하라. 유저의 행동을 네가 임의로 결정하지 말고, 오직 유저의 입력에 대한 "${settings.charName}"의 반응과 이어지는 상황만 묘사하라.`;
     }
 
     const history = messages.slice(-10).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
@@ -134,6 +135,7 @@ const ChatPage = () => {
 
     let fullContent = "";
     let assistantStarted = false;
+
     try {
       await streamChat({
         message: combinedPrompt,
@@ -148,7 +150,8 @@ const ChatPage = () => {
         },
         onDone: () => {
           setIsLoading(false);
-          if (fullContent.includes(SPLIT_MARKER)) {
+          // 에러 방지를 위해 fullContent가 있을 때만 split 로직 실행
+          if (fullContent && fullContent.includes(SPLIT_MARKER)) {
             const parts = fullContent.split(SPLIT_MARKER).map(p => p.trim()).filter(Boolean);
             if (parts.length > 1) {
               updateLastAssistant(parts[0]);
@@ -157,7 +160,10 @@ const ChatPage = () => {
           }
         }
       });
-    } catch (error: any) { setIsLoading(false); toast.error(error.message); }
+    } catch (error: any) { 
+      setIsLoading(false); 
+      toast.error(error.message); 
+    }
   }, [input, isLoading, messages, settings, addMessage, updateLastAssistant]);
 
   const handleNarration = useCallback(() => {
