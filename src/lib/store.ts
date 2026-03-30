@@ -71,10 +71,19 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.warn(e); }
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.warn("localStorage save failed:", key, e); }
 }
 
 function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
+  let supportingCharacters = currentSettings.supportingCharacters;
+  if (row.supporting_characters) {
+    try {
+      const parsed = typeof row.supporting_characters === "string" ? JSON.parse(row.supporting_characters) : row.supporting_characters;
+      supportingCharacters = Array.isArray(parsed) ? parsed : currentSettings.supportingCharacters;
+    } catch {
+      supportingCharacters = currentSettings.supportingCharacters;
+    }
+  }
   return {
     ...currentSettings,
     myName: row.my_name || "",
@@ -87,7 +96,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
     geminiApiKey: row.gemini_api_key || "",
-    supportingCharacters: typeof row.supporting_characters === 'string' ? JSON.parse(row.supporting_characters) : row.supporting_characters || [],
+    supportingCharacters,
   };
 }
 
@@ -114,7 +123,7 @@ export function useSettings() {
     setSettingsState(normalized);
     saveToStorage("app-settings", normalized);
     if (user) {
-      await supabase.from("user_settings").upsert({
+      const payload: any = {
         user_id: user.id,
         my_name: normalized.myName,
         my_intro: normalized.myIntro,
@@ -127,7 +136,8 @@ export function useSettings() {
         chat_background: normalized.chatBackground,
         gemini_api_key: normalized.geminiApiKey,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
+      };
+      await supabase.from("user_settings").upsert(payload, { onConflict: "user_id" });
     }
   }, [user]);
 
@@ -144,20 +154,29 @@ export function useMessages() {
     return newMsg;
   }, []);
 
-  return { 
-    messages, addMessage, 
-    clearMessages: () => setMessagesState([]),
-    deleteMessage: (id: string) => setMessagesState(prev => prev.filter(m => m.id !== id)),
-    deleteMessagesFrom: (id: string) => setMessagesState(prev => {
-      const idx = prev.findIndex(m => m.id === id);
-      return idx === -1 ? prev : prev.slice(0, idx);
-    }),
-    updateLastAssistant: (content: string) => setMessagesState(prev => {
+  const clearMessages = useCallback(() => { setMessagesState([]); }, []);
+  const deleteMessage = useCallback((id: string) => { setMessagesState((prev) => prev.filter((m) => m.id !== id)); }, []);
+  const deleteMessagesFrom = useCallback((id: string) => {
+    setMessagesState((prev) => {
+      const idx = prev.findIndex((m) => m.id === id);
+      if (idx === -1) return prev;
+      return prev.slice(0, idx);
+    });
+  }, []);
+
+  const updateLastAssistant = useCallback((content: string) => {
+    setMessagesState((prev) => {
       const last = prev[prev.length - 1];
-      return last?.role === "assistant" ? prev.map((m, i) => i === prev.length - 1 ? { ...m, content } : m) : prev;
-    }),
-    loadMessages: (msgs: ChatMessage[]) => setMessagesState(msgs)
-  };
+      if (last?.role === "assistant") {
+        return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content } : m));
+      }
+      return prev;
+    });
+  }, []);
+
+  const loadMessages = useCallback((msgs: ChatMessage[]) => { setMessagesState(msgs); }, []);
+
+  return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages };
 }
 
 export function useConversations() {
@@ -170,7 +189,6 @@ export function useConversations() {
     saveToStorage("show-auto-saves", val);
   }, []);
 
-  // 🔄 서버 데이터 '안전 병합' 동기화
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -186,19 +204,12 @@ export function useConversations() {
         }));
 
         setConversationsState(prev => {
-          // 로컬에 이미 있는 데이터와 서버 데이터를 합칩니다.
           const merged = [...prev];
           remoteConvs.forEach(remote => {
             const index = merged.findIndex(l => l.id === remote.id);
             if (index > -1) {
-              // 둘 다 있다면 업데이트 시간이 더 늦은(최신) 것을 선택
-              if (remote.updatedAt > merged[index].updatedAt) {
-                merged[index] = remote;
-              }
-            } else {
-              // 로컬에 없는 데이터만 새로 추가
-              merged.push(remote);
-            }
+              if (remote.updatedAt > merged[index].updatedAt) { merged[index] = remote; }
+            } else { merged.push(remote); }
           });
           const final = merged.sort((a, b) => b.updatedAt - a.updatedAt);
           saveToStorage("saved-conversations", final);
@@ -207,6 +218,8 @@ export function useConversations() {
       }
     })();
   }, [user]);
+
+  useEffect(() => { saveToStorage("saved-conversations", conversations); }, [conversations]);
 
   const saveConversation = useCallback(async (messages: ChatMessage[], options: { existingId?: string, title?: string, settings?: AppSettings }) => {
     if (messages.length === 0) return null;
@@ -222,7 +235,6 @@ export function useConversations() {
 
     const newConv = { id: convId, title: newTitle, messages, settings: lightSettings, createdAt: now, updatedAt: now };
 
-    // 로컬 상태 즉시 반영 (사라짐 방지)
     setConversationsState(prev => {
       const filtered = prev.filter(c => c.id !== convId);
       const updated = [newConv, ...filtered];
@@ -261,7 +273,6 @@ export function useConversations() {
     if (user) await supabase.from("conversations").delete().eq("id", id);
   }, [user]);
 
-  // UI용 필터링 목록
   const displayConversations = useMemo(() => {
     return conversations.filter(c => showAutoSaves ? true : !c.title.includes("- 자동저장("));
   }, [conversations, showAutoSaves]);
