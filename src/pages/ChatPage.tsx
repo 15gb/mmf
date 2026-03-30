@@ -31,21 +31,22 @@ const ChatPage = () => {
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
-  const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 자동저장을 위한 최신 상태 유지
+  // 최신 상태 유지 (자동저장용)
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
+  const currentConvIdRef = useRef(currentConvId);
 
   useEffect(() => {
     messagesRef.current = messages;
     settingsRef.current = settings;
-  }, [messages, settings]);
+    currentConvIdRef.current = currentConvId;
+  }, [messages, settings, currentConvId]);
 
   const charName = settings.charName || "AI 캐릭터";
 
-  // URL 파라미터 처리
+  // URL 파라미터 로딩 로직
   useEffect(() => {
     const loadId = searchParams.get("load");
     const isNew = searchParams.get("new");
@@ -53,9 +54,7 @@ const ChatPage = () => {
       clearMessages();
       setCurrentConvId(null);
       setSearchParams({}, { replace: true });
-      return;
-    }
-    if (loadId) {
+    } else if (loadId) {
       const conv = conversations.find((c) => c.id === loadId);
       if (conv) {
         loadMessages(conv.messages);
@@ -63,7 +62,7 @@ const ChatPage = () => {
       }
       setSearchParams({}, { replace: true });
     }
-  }, [conversations, loadMessages, clearMessages, searchParams, setSearchParams]);
+  }, [conversations, searchParams, setSearchParams, clearMessages, loadMessages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -75,7 +74,7 @@ const ChatPage = () => {
     }
   }, [settings.charGreeting, addMessage, messages.length]);
 
-  /** 🚪 페이지 이탈 시 자동 저장 (1~5번 순환) */
+  /** 🚪 [자동저장] 나갈 때 1~5번 슬롯에 저장 */
   useEffect(() => {
     const handleExitSave = () => {
       if (messagesRef.current.length > 0) {
@@ -94,51 +93,52 @@ const ChatPage = () => {
     return (name || "새 대화").slice(0, 30);
   }, [settings.charName]);
 
+  /** 💾 [수동저장] 버튼 클릭 시 현재 슬롯 업데이트 또는 새 저장 */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
       return;
     }
-    const currentTitle = getDefaultSaveTitle();
-    const id = await saveConversation(messages, { title: currentTitle, settings });
+
+    const title = getDefaultSaveTitle();
+    
+    // 현재 대화 중인 ID가 있으면 덮어쓰기, 없으면 새로 저장
+    const id = await saveConversation(messages, { 
+      existingId: currentConvId || undefined, 
+      title: title, 
+      settings 
+    });
+
     if (id) {
       setCurrentConvId(id);
-      toast.success("대화가 저장되었습니다");
+      toast.success(currentConvId ? "기존 대화에 덮어쓰기 완료!" : "새 대화 목록에 저장 완료!");
     }
-  }, [messages, saveConversation, settings, getDefaultSaveTitle]);
+  }, [messages, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
 
   const handleSend = useCallback(async (overrideContent?: string) => {
     const content = overrideContent !== undefined ? overrideContent : input.trim();
     if ((content === "" && overrideContent === undefined) || isLoading) return;
 
-    const isSystemMessage = content.startsWith("[SYSTEM]");
-    const isEmptyMessage = content === "";
-    
-    if (!isSystemMessage && !isEmptyMessage) {
+    if (!content.startsWith("[SYSTEM]") && content !== "") {
       addMessage({ role: "user", content });
     }
     setInput("");
     setIsLoading(true);
 
-    const systemParts: string[] = [];
-    systemParts.push(`당신은 "${settings.charName}"를 연기하는 숙련된 역할극 작가입니다.`);
-    
-    if (settings?.charPersona) systemParts.push(`[성격 및 말투]\n${settings.charPersona}`);
-    if (settings?.worldSetting) systemParts.push(`[세계관 설정]\n${settings.worldSetting}`);
-    if (settings?.myName) systemParts.push(`상대방(유저) 이름: ${settings.myName}`);
-    if (settings?.note) systemParts.push(`[기억해야 할 내용]\n${settings.note}`);
+    const systemPrompt = `당신은 "${settings.charName}"를 연기하는 작가입니다.
+성격: ${settings.charPersona}
+세계관: ${settings.worldSetting}
+유저이름: ${settings.myName}
+노트: ${settings.note}
 
-    systemParts.push(`
-[응답 규칙]
-1. 행동, 표정, 주변 환경 묘사(나레이션)는 반드시 별표(*)로 감싸주세요. (예: *가볍게 웃으며 손을 흔든다*)
-2. 대화문은 반드시 따옴표("")를 사용해주세요.
-3. 응답은 상황을 풍부하게 묘사하여 **최소 5줄 이상**으로 길게 작성하세요.
-4. 한 번의 응답에 대사뿐만 아니라 풍부한 나레이션을 포함해 하나의 완성된 '장면'을 만들어주세요.
-5. 장면이 너무 길거나 분위기가 완전히 바뀔 때만 "${SPLIT_MARKER}" 구분자를 사용해 메시지를 나누어주세요.`);
+[규칙]
+1. 행동/환경 묘사는 반드시 별표(*)로 감싸세요.
+2. 대사는 반드시 따옴표("")를 사용하세요.
+3. 응답은 최소 5줄 이상 풍부하게 작성하세요.
+4. 장면이 길어질 때만 "${SPLIT_MARKER}"를 넣으세요.`;
 
-    const systemPrompt = systemParts.join("\n\n");
     const history = messages.slice(-10).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
-    const combinedPrompt = `${systemPrompt}\n\n[최근 대화 기록]\n${history}\n\nUser: ${content}\n\nAI:`;
+    const combinedPrompt = `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
 
     let fullContent = "";
     let assistantStarted = false;
@@ -161,9 +161,7 @@ const ChatPage = () => {
             const parts = fullContent.split(SPLIT_MARKER).map(p => p.trim()).filter(Boolean);
             if (parts.length > 1) {
               updateLastAssistant(parts[0]);
-              for (let i = 1; i < parts.length; i++) {
-                addMessage({ role: "assistant", content: parts[i] });
-              }
+              for (let i = 1; i < parts.length; i++) addMessage({ role: "assistant", content: parts[i] });
             }
           }
         }
@@ -183,10 +181,8 @@ const ChatPage = () => {
 
   const handleSummonCharacter = useCallback(() => {
     if (isLoading) return;
-    const supportingChars = settings.supportingCharacters || [];
-    const charList = supportingChars.map(c => `- ${c.name}: ${c.persona}`).join("\n");
-    const summonPrompt = `[SYSTEM] 현재 상황에 조연 캐릭터를 등장시켜 이야기를 이어가주세요. ${charList ? `\n\n[조연 후보]:\n${charList}` : ""}`;
-    handleSend(summonPrompt);
+    const charList = (settings.supportingCharacters || []).map(c => `- ${c.name}: ${c.persona}`).join("\n");
+    handleSend(`[SYSTEM] 조연 등장 요청:\n${charList}`);
   }, [isLoading, handleSend, settings.supportingCharacters]);
 
   const handleGenerateImage = useCallback(async () => {
@@ -203,13 +199,6 @@ const ChatPage = () => {
       setIsGeneratingImage(false);
     }
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
-
-  const handleLongPress = (id: string, e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    const clientX = "touches" in e ? (e as React.TouchEvent).touches[0].clientX : (e as React.MouseEvent).clientX;
-    const clientY = "touches" in e ? (e as React.TouchEvent).touches[0].clientY : (e as React.MouseEvent).clientY;
-    setContextMenu({ id, x: clientX, y: clientY });
-  };
 
   const renderContent = (msg: { role: string; content: string }) => {
     const imgData = decodeImageMessage(msg.content);
@@ -238,7 +227,7 @@ const ChatPage = () => {
           </div>
           <div className="text-left">
             <p className="font-semibold text-sm leading-tight">{charName}</p>
-            <p className="text-xs text-muted-foreground">설정하려면 탭하세요</p>
+            <p className="text-xs text-muted-foreground">설정창 이동</p>
           </div>
         </button>
         <div className="flex gap-1 text-muted-foreground">
@@ -246,28 +235,19 @@ const ChatPage = () => {
           <button onClick={handleSave} className="p-2 hover:text-primary"><Save size={18} /></button>
           <button onClick={() => navigate("/conversations")} className="p-2 hover:text-foreground"><List size={18} /></button>
           <button onClick={clearMessages} className="p-2 hover:text-destructive"><Trash2 size={18} /></button>
-          {/* ⭐ [복구] 설정 버튼 다시 추가 */}
           <button onClick={() => navigate("/settings")} className="p-2 hover:text-foreground"><Settings size={18} /></button>
         </div>
       </header>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-4" style={settings.chatBackground ? { backgroundImage: `url(${settings.chatBackground})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}>
         {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`} onContextMenu={(e) => handleLongPress(msg.id, e)}>
+          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${msg.role === "user" ? "bg-primary text-primary-foreground rounded-br-none" : "bg-card border border-border rounded-bl-none text-foreground"}`}>
               {renderContent(msg)}
             </div>
           </div>
         ))}
-        {isLoading && <div className="flex justify-start"><Loader2 className="animate-spin text-muted-foreground" size={20} /></div>}
       </div>
-
-      {contextMenu && (
-        <div className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={() => setContextMenu(null)}>
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted" onClick={() => deleteMessage(contextMenu.id)}><X size={14} /> 삭제</button>
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted" onClick={() => deleteMessagesFrom(contextMenu.id)}><Scissors size={14} /> 여기까지 삭제</button>
-        </div>
-      )}
 
       <div className="shrink-0 border-t border-border bg-card px-3 py-3 safe-area-bottom">
         <div className="flex items-end gap-2">
@@ -275,12 +255,12 @@ const ChatPage = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSend())}
-            placeholder="메시지를 입력하세요..."
+            placeholder="메시지..."
             rows={1}
             className="flex-1 resize-none rounded-2xl bg-muted px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 max-h-32"
           />
-          <button onClick={handleNarration} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all active:scale-90"><Star size={18} /></button>
-          <button onClick={handleSummonCharacter} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-secondary hover:text-secondary-foreground transition-all active:scale-90"><Users size={18} /></button>
+          <button onClick={handleNarration} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-accent transition-all active:scale-90"><Star size={18} /></button>
+          <button onClick={handleSummonCharacter} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-secondary transition-all active:scale-90"><Users size={18} /></button>
           <button onClick={() => handleSend()} disabled={isLoading || (!input.trim())} className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 transition-all active:scale-95"><Send size={18} /></button>
         </div>
       </div>
