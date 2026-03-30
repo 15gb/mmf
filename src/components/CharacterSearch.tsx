@@ -75,8 +75,51 @@ const CharacterSearch = ({ onSelect }: CharacterSearchProps) => {
         if (working) {
           avatarUrl = working;
         } else {
-          const prompt = `masterpiece, high quality, anime style, close up portrait, ${data.name}, ${description || "official art"}`;
-          avatarUrl = generatePollinationsUrl(prompt);
+          // Try AI-generated image (primary: pollinations.ai/p)
+          const seed = Math.floor(Math.random() * 1000000);
+          const primary = `${generatePollinationsUrl(
+            `masterpiece, high quality, anime style, close up portrait, ${data.name}, ${description || "official art"}`
+          )}&seed=${seed}`;
+          const alt = `https://image.pollinations.ai/prompt/${encodeURIComponent(
+            `masterpiece, high quality, anime style, close up portrait, ${data.name}, ${description || "official art"}`
+          )}?width=1024&height=1024&nologo=true&seed=${seed}`;
+
+          const testOne = (u: string) =>
+            new Promise<string | null>((resolve) => {
+              const img = new Image();
+              let done = false;
+              const cleanup = () => {
+                img.onload = null;
+                img.onerror = null;
+              };
+              const timer = setTimeout(() => {
+                if (!done) {
+                  done = true;
+                  cleanup();
+                  resolve(null);
+                }
+              }, 3000);
+              img.onload = () => {
+                if (!done) {
+                  done = true;
+                  clearTimeout(timer);
+                  cleanup();
+                  resolve(u);
+                }
+              };
+              img.onerror = () => {
+                if (!done) {
+                  done = true;
+                  clearTimeout(timer);
+                  cleanup();
+                  resolve(null);
+                }
+              };
+              img.crossOrigin = "anonymous";
+              img.src = u;
+            });
+
+          avatarUrl = (await testOne(primary)) || (await testOne(alt)) || primary;
         }
       } catch {
         avatarUrl = generatePollinationsUrl(`masterpiece, high quality, anime style, close up portrait, ${data.name}`);

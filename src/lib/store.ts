@@ -270,13 +270,9 @@ export function useConversations() {
     })();
   }, [user]);
 
-  // Save to localStorage as fallback
+  // Always keep a local copy for offline/PWA use
   useEffect(() => {
-    if (dbLoaded || !user) {
-      // Don't overwrite localStorage during DB load
-    } else {
-      saveToStorage("saved-conversations", conversations);
-    }
+    saveToStorage("saved-conversations", conversations);
   }, [conversations]);
 
   const saveConversation = useCallback(async (messages: ChatMessage[], options: { existingId?: string, title?: string, settings?: AppSettings }) => {
@@ -292,19 +288,25 @@ export function useConversations() {
     } : undefined;
 
     if (options.existingId) {
-      setConversationsState((prev) =>
-        prev.map((c) =>
-          c.id === options.existingId ? { 
-            ...c, 
-            messages, 
-            title: newTitle, 
-            settings: lightSettings || c.settings, 
-            chatBackground: lightSettings?.chatBackground, 
-            charAvatar: lightSettings?.charAvatar, 
-            updatedAt: now 
-          } : c
-        )
-      );
+      let nextState: Conversation[] = [];
+      setConversationsState((prev) => {
+        nextState = prev.map((c) =>
+          c.id === options.existingId
+            ? {
+                ...c,
+                messages,
+                title: newTitle,
+                settings: lightSettings || c.settings,
+                chatBackground: lightSettings?.chatBackground,
+                charAvatar: lightSettings?.charAvatar,
+                updatedAt: now,
+              }
+            : c
+        );
+        return nextState;
+      });
+      // 즉시 로컬에도 반영
+      saveToStorage("saved-conversations", nextState);
 
       if (user) {
         await supabase
@@ -334,7 +336,13 @@ export function useConversations() {
       createdAt: now,
       updatedAt: now,
     };
-    setConversationsState((prev) => [newConv, ...prev]);
+    let nextState: Conversation[] = [];
+    setConversationsState((prev) => {
+      nextState = [newConv, ...prev];
+      return nextState;
+    });
+    // 즉시 로컬에도 반영
+    saveToStorage("saved-conversations", nextState);
 
     if (user) {
       await supabase

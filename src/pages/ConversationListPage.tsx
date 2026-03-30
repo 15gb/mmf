@@ -37,7 +37,7 @@ const ConversationListPage = () => {
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {conversations.map((conv) => (
+            {[...conversations].sort((a, b) => b.updatedAt - a.updatedAt).map((conv) => (
               <div
                 key={conv.id}
                 className="flex items-center gap-3 px-4 py-3 active:bg-muted/50 transition-colors cursor-pointer"
