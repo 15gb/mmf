@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Search, Loader2, Sparkles } from "lucide-react";
 import { searchCharacter } from "@/lib/gemini-api";
-import { generatePollinationsUrl } from "@/lib/image-api";
 import { toast } from "sonner";
 
 interface CharacterSearchProps {

@@ -13,10 +13,10 @@ function sanitizePrompt(prompt: string): string {
 /** Generate a Pollinations.ai V2 image URL from a prompt */
 export function generatePollinationsUrl(prompt: string): string {
   const clean = sanitizePrompt(prompt);
-  if (POLLINATIONS_API_KEY) {
-    return `https://gen.pollinations.ai/image/${encodeURIComponent(clean)}?model=flux&width=1024&height=1024&seed=0&enhance=false&key=${POLLINATIONS_API_KEY}`;
+  if (!POLLINATIONS_API_KEY) {
+    throw new Error("Pollinations API 키가 설정되지 않았습니다. VITE_POLLINATIONS_API_KEY를 설정해주세요.");
   }
-  return `https://pollinations.ai/p/${encodeURIComponent(clean)}?width=1024&height=1024&nologo=true`;
+  return `https://gen.pollinations.ai/image/${encodeURIComponent(clean)}?model=flux&width=1024&height=1024&seed=0&enhance=false&key=${POLLINATIONS_API_KEY}`;
 }
 
 /** Generate an English prompt from conversation context via Gemini */
