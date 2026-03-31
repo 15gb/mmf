@@ -133,7 +133,7 @@ const ChatPage = () => {
     }
   }, [messages, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
 
-  /** 🚀 전송 핸들러 (대화 중심 스타일 + 에러 수정) */
+  /** 🚀 전송 핸들러 (대화 비중 50% 이상 규칙 적용) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -149,22 +149,22 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 🌟 핵심: 대화 중심 시스템 지침 (나레이션 축소, 대사 50% 이상)
+    // 🌟 핵심: 대화 중심 스타일 지침 수정
     let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}
 
 [채팅 스타일 규칙]
-1. **대화 비중 강화:** 답변 내용의 **절반 이상(최소 50% 이상)은 반드시 캐릭터의 직접적인 대사(""로 감싼 텍스트)**로 구성하라.
-2. **나레이션 최적화:** 행동, 표정, 배경 묘사는 별표(*)로 감싸되, 대화의 생동감을 돕는 수준으로 핵심만 짧게 서술하라.
-3. **길이 제한:** 답변은 전체적으로 **약 5~8문장 사이**로 유지하라. (불필요한 상황 설명보다는 캐릭터 간의 상호작용에 집중하라.)
-4. **시점 유지:** 제3자적인 설명보다는 캐릭터가 유저에게 직접 반응하고 말을 거는 느낌을 강조하라.`;
+1. **대화 비중 50% 이상:** 전체 답변 분량 중 캐릭터의 직접적인 대사(""로 감싼 부분)가 반드시 **최소 절반(50%) 이상**을 차지하게 하라. 캐릭터가 침묵하기보다 능동적으로 말을 걸게 하라.
+2. **나레이션 최적화:** 행동, 표정 묘사는 별표(*)로 감싸되, 대화의 맥락을 돕는 보조 수단으로만 사용하라. 장황한 상황 설명은 피하라.
+3. **길이 제한:** 답변은 전체적으로 **약 5~8문장 사이**로 유지하라. (사용자가 대화에 몰입할 수 있는 최적의 길이다.)
+4. **상호작용 중심:** 제3자 시점의 서술을 지양하고, "${settings.charName}"가 "${settings.myName}"에게 직접 말을 건네고 반응하는 현장감을 강조하라.`;
 
     if (isAuto) {
-      systemPrompt += `\n\n[특수: 자동 진행] 유저(나)의 입력이 없으므로, 이전 흐름에 맞춰 유저 캐릭터("${settings.myName}")가 할 법한 짧은 말과 행동을 네가 대신 작성하고, 그에 대한 너의 반응을 대화 중심으로 연결하라.`;
+      systemPrompt += `\n\n[특수: 자동 진행] 유저(나)의 입력이 없으므로, "${settings.myName}"가 할 법한 짧은 말과 행동을 네가 대신 작성한 뒤, 그에 대한 "${settings.charName}"의 반응을 **대사 중심으로** 이어가라.`;
     } else if (isSummon) {
-      systemPrompt += `\n\n[특수: 엑스트라 등장] 현재 상황에 맞는 새로운 인물을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
+      systemPrompt += `\n\n[특수: 엑스트라 등장] 현재 상황에 맞는 새로운 인물을 등장시켜 대화를 주고받아라.`;
     } else {
-      systemPrompt += `\n\n[특수: 일반 대화] 유저("${settings.myName}")의 메시지에 대해 "${settings.charName}"의 입장에서 대화하고 반응하라. 유저의 행동을 네가 임의로 결정하지 마라.`;
+      systemPrompt += `\n\n[특수: 일반 대화] 유저("${settings.myName}")의 메시지에 반응하라. 유저의 행동을 네가 임의로 결정하지 말고, "${settings.charName}"가 대화로 맞받아치는 것에 집중하라.`;
     }
 
     const history = messages.slice(-15).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
@@ -196,7 +196,6 @@ const ChatPage = () => {
           }
         },
         onError: (err) => {
-          // ⭐ e.onError is not a function 에러 해결
           setIsLoading(false);
           const errorMsg = typeof err === 'string' ? err : "통신 중 오류가 발생했습니다.";
           toast.error(errorMsg);
@@ -220,7 +219,7 @@ const ChatPage = () => {
     handleSend("[SUMMON_EXTRA]");
   }, [isLoading, handleSend]);
 
-  /** 🎨 이미지 생성 (toastId 오류 해결본) */
+  /** 🎨 이미지 생성 (toastId 오류 해결본 유지) */
   const handleGenerateImage = useCallback(async () => {
     if (isLoading || isGeneratingImage) return;
     setIsGeneratingImage(true);

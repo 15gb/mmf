@@ -12,7 +12,8 @@ export const streamChat = async (options: StreamChatOptions) => {
   let apiKey = getNextKey();
 
   const makeRequest = async (key: string): Promise<void> => {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:streamGenerateContent?alt=sse&key=${key}`;
+    // Gemini 3.1 Flash Lite 모델 사용
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:streamGenerateContent?alt=sse&key=${key}`;
     
     try {
       const response = await fetch(url, {
@@ -20,21 +21,35 @@ export const streamChat = async (options: StreamChatOptions) => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ contents: [{ parts: [{ text: options.message }] }] }),
+        body: JSON.stringify({ 
+          contents: [{ parts: [{ text: options.message }] }],
+          // 🌟 검열 및 창의성 설정 추가
+          generationConfig: {
+            temperature: 0.9,      // 창의성 및 장문 서술 강화
+            topP: 0.95,
+            maxOutputTokens: 2048, // 풍부한 대화 분량 확보
+          },
+          safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+          ],
+        }),
       });
 
-      if (response.status === 429) { // 할당량 초과 에러
+      if (response.status === 429) {
         rotateKey();
-        apiKey = useApiKeyStore.getState().getNextKey();
-        if (apiKey === key) { // 모든 키를 다 돌았을 경우
+        const nextApiKey = useApiKeyStore.getState().getNextKey();
+        if (nextApiKey === key) {
           throw new Error("모든 API 키의 할당량을 소진했습니다.");
         }
-        return makeRequest(apiKey); // 다음 키로 재귀 호출
+        return makeRequest(nextApiKey);
       }
 
       if (!response.ok || !response.body) {
         const errorText = await response.text();
-        throw new Error(`API 오류: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(`API 오류: ${response.status} - ${errorText}`);
       }
 
       const reader = response.body.getReader();
