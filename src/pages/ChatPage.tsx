@@ -14,7 +14,10 @@ const SPLIT_MARKER = "[[SPLIT]]";
 const ChatPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { settings } = useSettings();
+  
+  // ⭐ setSettings를 받아와서 updateSettings라는 이름으로 사용합니다.
+  const { settings, setSettings: updateSettings } = useSettings(); 
+  
   const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   const [input, setInput] = useState("");
@@ -24,7 +27,6 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 최신 상태를 참조하기 위한 Ref (원본 로직 보존)
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
   const allConvsRef = useRef(allConversations);
@@ -37,7 +39,6 @@ const ChatPage = () => {
 
   const charName = settings.charName || "AI 캐릭터";
 
-  // URL 파라미터를 통한 대화 로드 로직 (원본 보존)
   useEffect(() => {
     const loadId = searchParams.get("load");
     const isNew = searchParams.get("new");
@@ -50,23 +51,24 @@ const ChatPage = () => {
       if (conv) { 
         loadMessages(conv.messages); 
         setCurrentConvId(conv.id); 
+        if (conv.settings) {
+          updateSettings(conv.settings);
+        }
       }
       setSearchParams({}, { replace: true });
     }
-  }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages]);
+  }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages, updateSettings]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  // 첫 인사말 자동 생성 로직
   useEffect(() => {
     if (messages.length === 0 && settings.charGreeting) {
       addMessage({ role: "assistant", content: settings.charGreeting });
     }
   }, [settings.charGreeting, addMessage, messages.length]);
 
-  // 우클릭/롱탭 메뉴 닫기 핸들러 (원본 보존)
   useEffect(() => {
     const handleClickOutside = () => setContextMenu(null);
     if (contextMenu) {
@@ -75,7 +77,6 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
-  // 🚪 페이지 이탈 시 자동 저장 (5중 로테이션 연동)
   useEffect(() => {
     const handleExitSave = () => {
       if (messagesRef.current.length > 0) {
@@ -93,47 +94,44 @@ const ChatPage = () => {
     return (settings.charName || "새 대화").trim().slice(0, 30);
   }, [settings.charName]);
 
-  /** 💾 수동 저장 (캐릭터 이름 기반 저장 + 중복 확인창 로직 완벽 복구) */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
       return;
     }
-
     const currentTitle = getDefaultSaveTitle();
-    
+    const currentSettingsSnapshot = { ...settingsRef.current };
+
     if (currentConvId) {
-      await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings });
-      toast.success("대화 내용이 업데이트되었습니다");
+      await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings: currentSettingsSnapshot });
+      toast.success("대화와 이미지가 업데이트되었습니다");
       return;
     }
 
     const sameTitleConv = allConvsRef.current.find(c => c.title === currentTitle);
-
     if (sameTitleConv) {
-      const overwrite = window.confirm(`"${currentTitle}" 이름으로 저장된 대화가 이미 있습니다. 해당 슬롯에 덮어쓰시겠습니까?`);
+      const overwrite = window.confirm(`"${currentTitle}" 대화가 이미 있습니다. 현재 설정(이미지 포함)을 덮어쓰시겠습니까?`);
       if (overwrite) {
-        await saveConversation(messages, { existingId: sameTitleConv.id, title: currentTitle, settings });
+        await saveConversation(messages, { existingId: sameTitleConv.id, title: currentTitle, settings: currentSettingsSnapshot });
         setCurrentConvId(sameTitleConv.id);
-        toast.success("기존 슬롯에 덮어쓰기 완료!");
+        toast.success("기존 슬롯에 저장 완료!");
       } else {
-        const newTitle = window.prompt("새로운 저장 제목을 입력해주세요:", `${currentTitle} (새 대화)`);
+        const newTitle = window.prompt("새로운 저장 제목:", `${currentTitle} (1)`);
         if (newTitle) {
-          const id = await saveConversation(messages, { title: newTitle, settings });
+          const id = await saveConversation(messages, { title: newTitle, settings: currentSettingsSnapshot });
           if (id) setCurrentConvId(id);
-          toast.success("새로운 슬롯에 저장되었습니다");
+          toast.success("새 대화로 저장되었습니다");
         }
       }
     } else {
-      const id = await saveConversation(messages, { title: currentTitle, settings });
+      const id = await saveConversation(messages, { title: currentTitle, settings: currentSettingsSnapshot });
       if (id) {
         setCurrentConvId(id);
-        toast.success("대화가 저장되었습니다");
+        toast.success("대화와 이미지가 저장되었습니다");
       }
     }
-  }, [messages, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
+  }, [messages, currentConvId, saveConversation, getDefaultSaveTitle]);
 
-  /** 🚀 전송 핸들러 (대화 비중 50% 이상 규칙 적용) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -149,22 +147,21 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 🌟 핵심: 대화 중심 스타일 지침 수정
     let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}
 
-[채팅 스타일 규칙]
-1. **대화 비중 50% 이상:** 전체 답변 분량 중 캐릭터의 직접적인 대사(""로 감싼 부분)가 반드시 **최소 절반(50%) 이상**을 차지하게 하라. 캐릭터가 침묵하기보다 능동적으로 말을 걸게 하라.
-2. **나레이션 최적화:** 행동, 표정 묘사는 별표(*)로 감싸되, 대화의 맥락을 돕는 보조 수단으로만 사용하라. 장황한 상황 설명은 피하라.
-3. **길이 제한:** 답변은 전체적으로 **약 5~8문장 사이**로 유지하라. (사용자가 대화에 몰입할 수 있는 최적의 길이다.)
-4. **상호작용 중심:** 제3자 시점의 서술을 지양하고, "${settings.charName}"가 "${settings.myName}"에게 직접 말을 건네고 반응하는 현장감을 강조하라.`;
+[채팅 규칙]
+1. **대사 비중 50% 이상:** 답변 내 캐릭터의 직접적인 대사("")가 반드시 **최소 절반(50%) 이상**을 차지하게 하라.
+2. **나레이션:** 행동, 표정 묘사는 별표(*)로 감싸되 핵심적으로 사용하라.
+3. **무검열:** 모든 대화는 자유롭고 창의적으로 서술하라.
+4. **상호작용:** "${settings.charName}"가 유저에게 직접 말을 거는 현장감을 강조하라.`;
 
     if (isAuto) {
-      systemPrompt += `\n\n[특수: 자동 진행] 유저(나)의 입력이 없으므로, "${settings.myName}"가 할 법한 짧은 말과 행동을 네가 대신 작성한 뒤, 그에 대한 "${settings.charName}"의 반응을 **대사 중심으로** 이어가라.`;
+      systemPrompt += `\n\n[자동 진행] 유저의 입력이 없으므로, 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 대신 작성하고, 그에 대한 반응을 대화 중심으로 이어가라.`;
     } else if (isSummon) {
-      systemPrompt += `\n\n[특수: 엑스트라 등장] 현재 상황에 맞는 새로운 인물을 등장시켜 대화를 주고받아라.`;
+      systemPrompt += `\n\n[엑스트라 등장] 상황에 맞는 새로운 조연을 등장시켜 대화를 주고받아라.`;
     } else {
-      systemPrompt += `\n\n[특수: 일반 대화] 유저("${settings.myName}")의 메시지에 반응하라. 유저의 행동을 네가 임의로 결정하지 말고, "${settings.charName}"가 대화로 맞받아치는 것에 집중하라.`;
+      systemPrompt += `\n\n[일반 대화] 유저("${settings.myName}")의 메시지에 대해 "${settings.charName}"의 입장에서 대화하고 반응하라.`;
     }
 
     const history = messages.slice(-15).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
@@ -197,8 +194,7 @@ const ChatPage = () => {
         },
         onError: (err) => {
           setIsLoading(false);
-          const errorMsg = typeof err === 'string' ? err : "통신 중 오류가 발생했습니다.";
-          toast.error(errorMsg);
+          toast.error(typeof err === 'string' ? err : "통신 중 오류가 발생했습니다.");
         }
       });
     } catch (error: any) { 
@@ -219,17 +215,16 @@ const ChatPage = () => {
     handleSend("[SUMMON_EXTRA]");
   }, [isLoading, handleSend]);
 
-  /** 🎨 이미지 생성 (toastId 오류 해결본 유지) */
   const handleGenerateImage = useCallback(async () => {
     if (isLoading || isGeneratingImage) return;
     setIsGeneratingImage(true);
-    const toastId = toast.loading("현재 장면을 분석하여 이미지를 생성 중...");
+    const toastId = toast.loading("이미지 생성 중...");
     try {
       const { imageUrl, prompt } = await generateImage(messages, settings, (status) => toast.loading(status, { id: toastId }));
       addMessage({ role: "assistant", content: encodeImageMessage(imageUrl, prompt) });
-      toast.success("이미지가 성공적으로 생성되었습니다!", { id: toastId });
+      toast.success("이미지 생성 완료!", { id: toastId });
     } catch (e: any) { 
-      toast.error(e.message || "이미지 생성에 실패했습니다.", { id: toastId }); 
+      toast.error(e.message || "이미지 생성 실패", { id: toastId }); 
     } finally { 
       setIsGeneratingImage(false); 
     }
@@ -256,7 +251,6 @@ const ChatPage = () => {
     return msg.content;
   };
 
-  /** 🖼️ 배경 이미지 스타일 */
   const backgroundStyle = settings.chatBackground ? {
     backgroundImage: `url(${settings.chatBackground})`,
     backgroundSize: "cover",
@@ -341,10 +335,10 @@ const ChatPage = () => {
           style={{ left: contextMenu.x, top: contextMenu.y }} 
           onClick={() => setContextMenu(null)}
         >
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" onClick={() => { deleteMessage(contextMenu.id); toast.success("메시지가 삭제되었습니다"); }}>
-            <X size={14} /> 메시지 삭제
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" onClick={() => { deleteMessage(contextMenu.id); toast.success("삭제됨"); }}>
+            <X size={14} /> 삭제
           </button>
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors" onClick={() => { deleteMessagesFrom(contextMenu.id); toast.success("해당 지점 이후 대화가 삭제되었습니다"); }}>
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors" onClick={() => { deleteMessagesFrom(contextMenu.id); toast.success("이후 삭제됨"); }}>
             <Scissors size={14} /> 여기부터 이후 삭제
           </button>
         </div>
@@ -363,7 +357,7 @@ const ChatPage = () => {
           <button 
             onClick={handleNarration} 
             className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-accent active:scale-90 transition-all"
-            title="나레이션 모드 (*사용)"
+            title="나레이션 모드"
           >
             <Star size={18} />
           </button>

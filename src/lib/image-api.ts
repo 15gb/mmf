@@ -24,7 +24,7 @@ const fetchWithTimeout = async (resource: string, options: any = {}, timeout = 2
   }
 };
 
-/** [핵심] Gemini 프롬프트 생성 (NSFW 강제 주입 지침) */
+/** [핵심] Gemini 프롬프트 생성 (캐릭터 이미지 시각 분석 추가) */
 export async function generateImagePrompt(
   messages: { role: string; content: string }[],
   settings: AppSettings
@@ -33,13 +33,18 @@ export async function generateImagePrompt(
 
   if (apiKeys.length === 0) throw new Error("Gemini API 키가 필요합니다.");
 
-  // ⭐ 시스템 프롬프트 수정: 상황에 관계없이 무조건 nsfw 태그를 넣도록 지시
+  // ⭐ 시스템 프롬프트: 이미지 분석 및 NSFW 강제 지침
   const systemPrompt = `Expert Anime Prompt Engineer for "AbyssOrangeMix2". 
-Character: ${settings.charName} (${settings.charPersona})
+Character: ${settings.charName}
+[Visual Task]:
+1. You are provided with a reference image of the character. 
+2. Analyze the character's appearance (hair color, hair style, eye color, outfit, and unique features) from the attached image.
+3. Combine the character's visual traits with the current chat context to create a detailed prompt.
+
 [CRITICAL RULE]:
 1. You MUST ALWAYS start the tags with "nsfw, masterpiece, best quality, erotic, beautiful skin".
-2. Analyze the current context and add relevant tags for actions, clothing, and background.
-3. Even if the scene is normal, ALWAYS include nsfw-related tags to ensure the style remains consistent.
+2. Describe the character's appearance exactly as seen in the reference image.
+3. Add relevant tags for current actions, clothing, and background from the chat.
 4. Output ONLY comma-separated English tags. No conversation.`;
 
   const history = messages.slice(-5).map((m, idx) => {
@@ -51,16 +56,29 @@ Character: ${settings.charName} (${settings.charPersona})
     if (keyIndex >= apiKeys.length) throw new Error("모든 API 키가 만료되었거나 할당량이 초과되었습니다.");
 
     const currentKey = apiKeys[keyIndex];
-    // ⭐ 모델을 gemini-3.1-flash-lite-preview로 업데이트 (RPD 500 확보)
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${currentKey}`;
+
+    // ⭐ 멀티모달 파트 구성 (텍스트 + 캐릭터 이미지)
+    const parts: any[] = [{ text: `${systemPrompt}\n\nContext:\n${history}\n\nTags:` }];
+
+    // 프로필 이미지가 Base64 포맷인 경우 Gemini에게 전달
+    if (settings.charAvatar && settings.charAvatar.startsWith("data:image")) {
+      const [mimeInfo, base64Data] = settings.charAvatar.split(",");
+      const mimeType = mimeInfo.match(/:(.*?);/)?.[1] || "image/png";
+      parts.push({
+        inline_data: {
+          mime_type: mimeType,
+          data: base64Data,
+        },
+      });
+    }
 
     try {
       const response = await fetchWithTimeout(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `${systemPrompt}\n\nContext:\n${history}\n\nTags:` }] }],
-          // 🌟 무검열 프롬프트 생성을 위해 안전 필터 해제
+          contents: [{ parts }],
           safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -82,9 +100,8 @@ Character: ${settings.charName} (${settings.charPersona})
   return tryRequest(0);
 }
 
-/** [필수] Forge 서버 연동 (Negative Prompt에서 nsfw 완전 제거 및 프롬프트 강제 결합) */
+/** [필수] Forge 서버 연동 (무검열 설정 유지) */
 async function generateForgeImage(prompt: string): Promise<string> {
-  // ⭐ 프롬프트 앞에 nsfw 태그가 누락되었을 경우를 대비해 한 번 더 강제 결합
   const forcedPrompt = prompt.toLowerCase().includes("nsfw") 
     ? prompt 
     : `nsfw, erotic, ${prompt}`;
@@ -97,7 +114,6 @@ async function generateForgeImage(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       prompt: `(masterpiece, best quality), ${forcedPrompt}`,
-      // ⭐ Negative Prompt에서 nsfw를 완전히 제거하여 출력을 절대 방해하지 않도록 함
       negative_prompt: "low quality, bad anatomy, text, error, blurry, watermarks, (worst quality, low quality:1.4)",
       steps: 25,
       cfg_scale: 7.5,
@@ -119,10 +135,10 @@ export async function generateImage(
   onStatusChange: (status: string) => void
 ): Promise<{ imageUrl: string; prompt: string }> {
   try {
-    onStatusChange("장면 수위 분석 및 NSFW 프롬프트 구성 중...");
+    onStatusChange("캐릭터 외형 및 장면 수위 분석 중...");
     const prompt = await generateImagePrompt(messages, settings);
     
-    onStatusChange("Forge SD 가동 중 (무검열 모드)...");
+    onStatusChange("무검열 GPU 가동 중 (Forge SD)...");
     const imageUrl = await generateForgeImage(prompt);
 
     return { imageUrl, prompt };

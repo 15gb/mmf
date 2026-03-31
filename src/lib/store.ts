@@ -90,7 +90,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     myIntro: row.my_intro || "",
     charName: row.char_name || "AI 캐릭터",
     charPersona: row.char_persona || "",
-    charGreeting: row.char_greeting || "안녕! 만나서 반가워 😊",
+    charGreeting: row.char_greeting || "안녕! 만나서 반가워 😊", // 🌟 이 부분 오타 수정됨
     worldSetting: row.world_setting || "",
     note: row.note || "",
     charAvatar: row.char_avatar || "",
@@ -141,7 +141,24 @@ export function useSettings() {
     }
   }, [user]);
 
-  return { settings, setSettings };
+  const resetRPContent = useCallback(async () => {
+    const resetData: AppSettings = {
+      ...settings, 
+      myName: "",
+      myIntro: "",
+      charName: "AI 캐릭터",
+      charPersona: "",
+      charGreeting: "안녕! 만나서 반가워 😊",
+      worldSetting: "",
+      note: "",
+      charAvatar: "",
+      chatBackground: "",
+      supportingCharacters: [],
+    };
+    await setSettings(resetData);
+  }, [settings, setSettings]);
+
+  return { settings, setSettings, resetRPContent };
 }
 
 export function useMessages() {
@@ -227,13 +244,9 @@ export function useConversations() {
     const newTitle = options.title || "새 대화";
     const convId = options.existingId || generateUUID();
 
-    const lightSettings = options.settings ? {
-      ...options.settings,
-      charAvatar: (options.settings.charAvatar?.length || 0) > 500 ? "" : options.settings.charAvatar,
-      chatBackground: (options.settings.chatBackground?.length || 0) > 500 ? "" : options.settings.chatBackground,
-    } : undefined;
+    const savedSettings = options.settings ? { ...options.settings } : undefined;
 
-    const newConv = { id: convId, title: newTitle, messages, settings: lightSettings, createdAt: now, updatedAt: now };
+    const newConv = { id: convId, title: newTitle, messages, settings: savedSettings, createdAt: now, updatedAt: now };
 
     setConversationsState(prev => {
       const filtered = prev.filter(c => c.id !== convId);
@@ -248,7 +261,7 @@ export function useConversations() {
         user_id: user.id,
         title: newTitle,
         messages: messages as any,
-        settings: lightSettings as any,
+        settings: savedSettings as any,
         updated_at: new Date(now).toISOString()
       });
     }

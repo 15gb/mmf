@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash, Key, Eye, EyeOff, ImageIcon } from "lucide-react";
-import { useSettings, useConversations, type AppSettings, type SupportingCharacter } from "@/lib/store";
+import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash, Key, Eye, EyeOff, ImageIcon, Eraser } from "lucide-react";
+import { useSettings, useConversations, useMessages, type AppSettings, type SupportingCharacter } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 import { generateUUID } from "@/lib/utils";
 import { toast } from "sonner";
@@ -65,8 +65,9 @@ const Field = ({
 
 const SettingsPage = () => {
   const navigate = useNavigate();
-  const { settings, setSettings } = useSettings();
+  const { settings, setSettings, resetRPContent } = useSettings();
   const { conversations, allConversations, deleteConversation, showAutoSaves, setShowAutoSaves } = useConversations();
+  const { clearMessages } = useMessages();
   const { user, signOut } = useAuth();
   const [form, setForm] = useState<AppSettings>(settings);
   const [worldQuery, setWorldQuery] = useState("");
@@ -101,6 +102,15 @@ const SettingsPage = () => {
       toast.error("세계관 검색에 실패했습니다.");
     } finally {
       setIsWorldSearching(false);
+    }
+  };
+
+  /** 🌟 [추가] RP 컨텐츠 초기화 실행 함수 */
+  const handleFullReset = async () => {
+    if (window.confirm("중요 정보(로그인, API키)를 제외한 모든 프로필, 세계관, 이미지, 노트를 초기화하시겠습니까?")) {
+      await resetRPContent();
+      clearMessages();
+      toast.success("컨텐츠 초기화가 완료되었습니다.");
     }
   };
 
@@ -154,7 +164,6 @@ const SettingsPage = () => {
             }));
             toast.success("정보가 자동으로 채워졌습니다!");
           }} />
-          {/* 캐릭터 프로필 이미지 업로드 */}
           <ImageUploadField label="캐릭터 프로필 이미지" value={form.charAvatar} onChange={(v) => update("charAvatar", v)} hint="캐릭터의 얼굴로 표시됩니다" />
           <Field label="캐릭터 이름" value={form.charName} onChange={(v) => update("charName", v)} placeholder="AI 캐릭터" />
           <Field label="성격 (페르소나)" value={form.charPersona} onChange={(v) => update("charPersona", v)} multiline placeholder="성격과 말투" />
@@ -162,7 +171,6 @@ const SettingsPage = () => {
         </Section>
 
         <Section title="채팅방 꾸미기">
-          {/* ⭐ [요청 반영] 배경 이미지 업로드 필드 추가 */}
           <ImageUploadField 
             label="채팅 배경 이미지" 
             value={form.chatBackground} 
@@ -184,7 +192,6 @@ const SettingsPage = () => {
           <Field label="세계관" value={form.worldSetting} onChange={(v) => update("worldSetting", v)} multiline placeholder="시대상, 배경 등" />
           <Field label="노트 (장기 기억)" value={form.note} onChange={(v) => update("note", v)} multiline placeholder="AI가 기억해야 할 중요 정보" />
 
-          {/* API Key Section */}
           <div className="mt-6 pt-5 border-t border-border/50 space-y-2">
             <label className="text-sm font-medium text-foreground flex items-center gap-2">
               <Key size={16} className="text-primary" /> Gemini API Key
@@ -196,7 +203,18 @@ const SettingsPage = () => {
 
         <Section title="데이터 관리">
           <div className="space-y-4">
+            {/* 🌟 [추가] 컨텐츠 초기화 버튼 */}
             <div className="flex items-center justify-between p-1">
+              <div>
+                <p className="text-sm font-medium text-foreground">컨텐츠 초기화</p>
+                <p className="text-xs text-muted-foreground">프로필, 이미지, 세계관, 노트를 비웁니다</p>
+              </div>
+              <button onClick={handleFullReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-destructive text-destructive text-sm font-medium active:scale-95 transition-transform">
+                <Eraser size={14} /> 초기화
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between p-1 pt-2 border-t border-border/30">
               <div>
                 <p className="text-sm font-medium">자동저장 파일 표시</p>
                 <p className="text-xs text-muted-foreground">목록에서 자동저장 파일을 숨기거나 보여줍니다</p>
