@@ -24,7 +24,7 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 최신 상태를 참조하기 위한 Ref
+  // 최신 상태를 참조하기 위한 Ref (원본 로직 유지)
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
   const allConvsRef = useRef(allConversations);
@@ -102,14 +102,12 @@ const ChatPage = () => {
 
     const currentTitle = getDefaultSaveTitle();
     
-    // 1. 이미 현재 대화 슬롯 ID가 할당되어 있는 경우
     if (currentConvId) {
       await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings });
       toast.success("대화 내용이 업데이트되었습니다");
       return;
     }
 
-    // 2. 전체 목록에서 동일한 캐릭터명(제목)이 있는지 확인
     const sameTitleConv = allConvsRef.current.find(c => c.title === currentTitle);
 
     if (sameTitleConv) {
@@ -127,7 +125,6 @@ const ChatPage = () => {
         }
       }
     } else {
-      // 3. 중복이 없는 경우 새로 저장
       const id = await saveConversation(messages, { title: currentTitle, settings });
       if (id) {
         setCurrentConvId(id);
@@ -136,7 +133,7 @@ const ChatPage = () => {
     }
   }, [messages, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
 
-  /** 🚀 전송 및 자동 진행 핸들러 (풍부한 묘사 + 모드별 지침 분리) */
+  /** 🚀 전송 핸들러 (러버블 스타일 대화 중심 + 상황별 지침 반영) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -145,7 +142,6 @@ const ChatPage = () => {
     if (!isAuto && !isSummon && content === "" && overrideContent === undefined) return;
     if (isLoading) return;
 
-    // 유저 메시지를 화면에 표시 (공백 자동진행이나 시스템 명령이 아닐 때만)
     if (!content.startsWith("[SYSTEM]") && content !== "" && !isAuto && !isSummon) {
       addMessage({ role: "user", content });
     }
@@ -153,29 +149,29 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 🌟 핵심: 소설가 페르소나 지침 (절대 간결 금지)
-    let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 소설 작가이다. 유저의 이름은 "${settings.myName}"이다.
-성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 배경 설정: ${settings.worldSetting}
+    // 🌟 핵심: 러버블 스타일 시스템 지침 (대화 중심 + 적절한 길이)
+    let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
+성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}
 
-[필수 응답 규칙]
-1. 행동, 표정, 미세한 심리 상태, 주변 환경의 공기 흐름까지 반드시 별표(*)로 감싸 아주 풍부하고 생생하게 묘사하라.
-2. 모든 캐릭터의 대사는 반드시 따옴표("")를 사용하라.
-3. **지침: 절대로 간결하게 쓰지 마라.** 한 장면을 머릿속에 그려내듯 소설처럼 깊이 있고 상세하게 서술하라. 최소 3문단 이상의 풍부한 텍스트를 구성하라.
-4. 나레이션과 대사를 조화롭게 섞어 하나의 완성된 장면을 그려내라.`;
+[채팅 스타일 규칙]
+1. **대화 중심:** 상황 설명이나 독백보다는 캐릭터의 직접적인 **대사(Dialogue)**를 답변의 핵심으로 삼아라.
+2. **나레이션 조절:** 행동, 심리, 배경 묘사는 별표(*)로 감싸되, 대화의 흐름과 생동감을 돕는 수준으로 적절히 섞어라.
+3. **길이 제한:** 답변은 한 번에 **약 5~8문장 사이**로 작성하라. (핵심 대사와 꼭 필요한 행동 묘사만 담아라.)
+4. **시점 유지:** 제3자적인 관찰자 시점의 서술은 지양하고, 캐릭터가 유저에게 직접 말을 걸고 반응하는 느낌을 유지하라.`;
 
     if (isAuto) {
-      // 🌟 공백 전송 시: 내 캐릭터 대행 지침
-      systemPrompt += `\n\n[특수 지침: 상황 자동 진행] 유저(나)의 입력이 없으므로, 네가 이전 맥락을 깊이 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 대신 작성하고, 그에 반응하는 "${settings.charName}"의 모습까지 한꺼번에 장문으로 서술하여 이야기를 자연스럽게 이어가라.`;
+      // 공백 전송 시 지침: 유저 대행 포함
+      systemPrompt += `\n\n[특수: 자동 진행 모드] 유저(나)의 입력이 없으므로, 이전 맥락을 참고하여 유저 캐릭터("${settings.myName}")가 할 법한 짧은 말이나 행동을 네가 대신 작성하고, 그에 대한 "${settings.charName}"의 반응을 연결하여 하나의 장면으로 만들어라.`;
     } else if (isSummon) {
-      // 🌟 엑스트라 소환 시 지침
-      systemPrompt += `\n\n[특수 지침: 엑스트라 등장] 현재 분위기에 걸맞은 새로운 조연(엑스트라)을 등장시켜라. 그 인물의 외양, 직업, 말투를 풍부하게 묘사하며 상황을 이끌어라.`;
+      // 엑스트라 소환 시 지침
+      systemPrompt += `\n\n[특수: 엑스트라 등장 모드] 상황에 맞는 새로운 조연(엑스트라)을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
     } else {
-      // 🌟 일반 대화 시 지침
-      systemPrompt += `\n\n[특수 지침: 일반 반응] 오직 유저("${settings.myName}")의 입력에만 집중하라. 유저의 행동을 네가 임의로 결정하지 말고, 유저의 입력에 대한 "${settings.charName}"의 입체적인 반응과 그로 인해 변화하는 주변 상황을 상세히 묘사하라.`;
+      // 일반 대화 시 지침: 유저 대행 금지
+      systemPrompt += `\n\n[특수: 일반 대화 모드] 오직 유저("${settings.myName}")의 입력에 대해 "${settings.charName}"의 입장에서 대화하고 반응하라. 유저의 행동을 네가 임의로 결정하지 마라.`;
     }
 
     const history = messages.slice(-15).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
-    const combinedPrompt = `${systemPrompt}\n\n[현재까지의 대화 기록]\n${history}\n\nUser: ${content}\n\nAI:`;
+    const combinedPrompt = `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
 
     let fullContent = "";
     let assistantStarted = false;
@@ -194,7 +190,6 @@ const ChatPage = () => {
         },
         onDone: () => {
           setIsLoading(false);
-          // SPLIT_MARKER가 있을 경우 처리 (복수 응답 분할 로직)
           if (fullContent && fullContent.includes(SPLIT_MARKER)) {
             const parts = fullContent.split(SPLIT_MARKER).map(p => p.trim()).filter(Boolean);
             if (parts.length > 1) {
@@ -204,11 +199,9 @@ const ChatPage = () => {
           }
         },
         onError: (err) => {
-          // ⭐ e.onError is not a function 에러 완전 해결
           setIsLoading(false);
           const errorMsg = typeof err === 'string' ? err : "통신 중 오류가 발생했습니다.";
           toast.error(errorMsg);
-          console.error("StreamChat Error:", err);
         }
       });
     } catch (error: any) { 
@@ -229,7 +222,7 @@ const ChatPage = () => {
     handleSend("[SUMMON_EXTRA]");
   }, [isLoading, handleSend]);
 
-  /** 🎨 이미지 생성 (tid 오류 해결본) */
+  /** 🎨 이미지 생성 (toastId 오류 해결본) */
   const handleGenerateImage = useCallback(async () => {
     if (isLoading || isGeneratingImage) return;
     setIsGeneratingImage(true);
@@ -259,7 +252,6 @@ const ChatPage = () => {
       );
     }
     
-    // 유저의 나레이션(*) 스타일 처리
     const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*") && msg.content.length > 2;
     if (isNarration) {
       return <span className="italic text-muted-foreground/80">{msg.content.slice(1, -1)}</span>;
@@ -267,7 +259,7 @@ const ChatPage = () => {
     return msg.content;
   };
 
-  /** 🖼️ 배경 이미지 스타일 (검은 오버레이 없이 원본 출력) */
+  /** 🖼️ 배경 이미지 스타일 */
   const backgroundStyle = settings.chatBackground ? {
     backgroundImage: `url(${settings.chatBackground})`,
     backgroundSize: "cover",
@@ -277,7 +269,6 @@ const ChatPage = () => {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
-      {/* 🔹 Header Section */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-20">
         <button onClick={() => navigate("/settings")} className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity">
           <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold overflow-hidden shrink-0">
@@ -309,14 +300,12 @@ const ChatPage = () => {
         </div>
       </header>
 
-      {/* 🔹 Chat Area Section */}
       <div 
         ref={scrollRef} 
         className="flex-1 overflow-y-auto px-3 py-4 space-y-4 relative" 
         style={backgroundStyle}
       >
         {messages.map((msg) => {
-          // 엑스트라 체크 로직
           const isExtra = msg.role === "assistant" && (msg.content.trim().startsWith("**") || !msg.content.includes(settings.charName));
           
           return (
@@ -325,13 +314,12 @@ const ChatPage = () => {
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} relative z-10`}
               onContextMenu={(e) => { e.preventDefault(); setContextMenu({ id: msg.id, x: e.clientX, y: e.clientY }); }}
             >
-              {/* 메인 캐릭터일 때만 아바타 노출 */}
               {msg.role === "assistant" && !isExtra && (
                  <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-[10px] text-primary-foreground font-bold mr-2 mt-1 shrink-0 overflow-hidden">
-                   {settings.charAvatar ? <img src={settings.charAvatar} className="w-full h-full object-cover" alt="avatar" /> : charName[0]}
+                   {settings.charAvatar ? <img src={settings.charAvatar} className="w-full h-full rounded-full object-cover" alt="avatar" /> : charName[0]}
                  </div>
               )}
-              {isExtra && <div className="w-9" />} {/* 엑스트라용 아바타 공간 비우기 */}
+              {isExtra && <div className="w-9" />}
               
               <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
                 msg.role === "user" 
@@ -350,7 +338,6 @@ const ChatPage = () => {
         )}
       </div>
 
-      {/* 🔹 Context Menu Section (원본 보존) */}
       {contextMenu && (
         <div 
           className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" 
@@ -366,7 +353,6 @@ const ChatPage = () => {
         </div>
       )}
 
-      {/* 🔹 Input Section */}
       <div className="shrink-0 border-t border-border bg-card px-3 py-3 safe-area-bottom">
         <div className="flex items-end gap-2">
           <textarea 
