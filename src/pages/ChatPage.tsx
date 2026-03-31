@@ -14,10 +14,7 @@ const SPLIT_MARKER = "[[SPLIT]]";
 const ChatPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  
-  // ⭐ setSettings를 받아와서 updateSettings라는 이름으로 사용합니다.
-  const { settings, setSettings: updateSettings } = useSettings(); 
-  
+  const { settings } = useSettings();
   const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   const [input, setInput] = useState("");
@@ -51,13 +48,10 @@ const ChatPage = () => {
       if (conv) { 
         loadMessages(conv.messages); 
         setCurrentConvId(conv.id); 
-        if (conv.settings) {
-          updateSettings(conv.settings);
-        }
       }
       setSearchParams({}, { replace: true });
     }
-  }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages, updateSettings]);
+  }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -99,39 +93,41 @@ const ChatPage = () => {
       toast.error("저장할 대화가 없습니다");
       return;
     }
-    const currentTitle = getDefaultSaveTitle();
-    const currentSettingsSnapshot = { ...settingsRef.current };
 
+    const currentTitle = getDefaultSaveTitle();
+    
     if (currentConvId) {
-      await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings: currentSettingsSnapshot });
-      toast.success("대화와 이미지가 업데이트되었습니다");
+      await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings });
+      toast.success("대화 내용이 업데이트되었습니다");
       return;
     }
 
     const sameTitleConv = allConvsRef.current.find(c => c.title === currentTitle);
+
     if (sameTitleConv) {
-      const overwrite = window.confirm(`"${currentTitle}" 대화가 이미 있습니다. 현재 설정(이미지 포함)을 덮어쓰시겠습니까?`);
+      const overwrite = window.confirm(`"${currentTitle}" 이름으로 저장된 대화가 이미 있습니다. 해당 슬롯에 덮어쓰시겠습니까?`);
       if (overwrite) {
-        await saveConversation(messages, { existingId: sameTitleConv.id, title: currentTitle, settings: currentSettingsSnapshot });
+        await saveConversation(messages, { existingId: sameTitleConv.id, title: currentTitle, settings });
         setCurrentConvId(sameTitleConv.id);
-        toast.success("기존 슬롯에 저장 완료!");
+        toast.success("기존 슬롯에 덮어쓰기 완료!");
       } else {
-        const newTitle = window.prompt("새로운 저장 제목:", `${currentTitle} (1)`);
+        const newTitle = window.prompt("새로운 저장 제목을 입력해주세요:", `${currentTitle} (새 대화)`);
         if (newTitle) {
-          const id = await saveConversation(messages, { title: newTitle, settings: currentSettingsSnapshot });
+          const id = await saveConversation(messages, { title: newTitle, settings });
           if (id) setCurrentConvId(id);
-          toast.success("새 대화로 저장되었습니다");
+          toast.success("새로운 슬롯에 저장되었습니다");
         }
       }
     } else {
-      const id = await saveConversation(messages, { title: currentTitle, settings: currentSettingsSnapshot });
+      const id = await saveConversation(messages, { title: currentTitle, settings });
       if (id) {
         setCurrentConvId(id);
-        toast.success("대화와 이미지가 저장되었습니다");
+        toast.success("대화가 저장되었습니다");
       }
     }
-  }, [messages, currentConvId, saveConversation, getDefaultSaveTitle]);
+  }, [messages, currentConvId, saveConversation, settings, getDefaultSaveTitle]);
 
+  /** 🚀 전송 핸들러 (대화 비중 50% + 응답 길이 절반 단축) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -147,21 +143,22 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
+    // 🌟 핵심: 길이 단축 및 대사 비중 지침 수정
+    let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 전문가이다. 유저의 이름은 "${settings.myName}"이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}
 
-[채팅 규칙]
-1. **대사 비중 50% 이상:** 답변 내 캐릭터의 직접적인 대사("")가 반드시 **최소 절반(50%) 이상**을 차지하게 하라.
-2. **나레이션:** 행동, 표정 묘사는 별표(*)로 감싸되 핵심적으로 사용하라.
-3. **무검열:** 모든 대화는 자유롭고 창의적으로 서술하라.
-4. **상호작용:** "${settings.charName}"가 유저에게 직접 말을 거는 현장감을 강조하라.`;
+[채팅 스타일 규칙]
+1. **대사 비중 강화 (핵심):** 전체 답변 분량 중 캐릭터의 직접적인 대사(""로 감싼 텍스트)가 반드시 **최소 절반(50%) 이상**을 차지하게 하라.
+2. **길이 단축 (핵심): 나레이션(행동/심리 묘사)과 대사를 합친 답변의 전체 길이를 이전의 약 절반 수준으로 짧게 줄여라. 불필요한 상황 설명을 배제하고 핵심적인 상호작용에만 집중하라.**
+3. **묘사:** 행동, 표정 묘사는 별표(*)로 감싸되, 대화의 맛을 살리는 핵심 묘사만 짧고 생생하게 서술하라. 장황한 소설체 서술을 피하라.
+4. **상호작용:** "${settings.charName}"가 유저에게 직접 말을 건네고 반응하는 현장감을 강조하라.`;
 
     if (isAuto) {
-      systemPrompt += `\n\n[자동 진행] 유저의 입력이 없으므로, 유저 캐릭터("${settings.myName}")가 할 법한 행동과 대사를 대신 작성하고, 그에 대한 반응을 대화 중심으로 이어가라.`;
+      systemPrompt += `\n\n[특수: 자동 진행] 유저(나)의 입력이 없으므로, 이전 흐름에 맞춰 유저 캐릭터("${settings.myName}")가 할 법한 짧은 말과 행동을 대신 작성하고, 그에 대한 너의 반응을 대화 중심으로 타이트하게 연결하라.`;
     } else if (isSummon) {
-      systemPrompt += `\n\n[엑스트라 등장] 상황에 맞는 새로운 조연을 등장시켜 대화를 주고받아라.`;
+      systemPrompt += `\n\n[특수: 엑스트라 등장] 상황에 맞는 새로운 인물을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
     } else {
-      systemPrompt += `\n\n[일반 대화] 유저("${settings.myName}")의 메시지에 대해 "${settings.charName}"의 입장에서 대화하고 반응하라.`;
+      systemPrompt += `\n\n[특수: 일반 대화] 유저("${settings.myName}")의 메시지에 대해 "${settings.charName}"의 입장에서 대화하고 반응하라. 유저의 행동을 임의로 결정하지 마라.`;
     }
 
     const history = messages.slice(-15).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
@@ -194,7 +191,8 @@ const ChatPage = () => {
         },
         onError: (err) => {
           setIsLoading(false);
-          toast.error(typeof err === 'string' ? err : "통신 중 오류가 발생했습니다.");
+          const errorMsg = typeof err === 'string' ? err : "통신 중 오류가 발생했습니다.";
+          toast.error(errorMsg);
         }
       });
     } catch (error: any) { 
@@ -218,13 +216,13 @@ const ChatPage = () => {
   const handleGenerateImage = useCallback(async () => {
     if (isLoading || isGeneratingImage) return;
     setIsGeneratingImage(true);
-    const toastId = toast.loading("이미지 생성 중...");
+    const toastId = toast.loading("캐릭터 외형 분석 및 이미지 생성 중...");
     try {
       const { imageUrl, prompt } = await generateImage(messages, settings, (status) => toast.loading(status, { id: toastId }));
       addMessage({ role: "assistant", content: encodeImageMessage(imageUrl, prompt) });
-      toast.success("이미지 생성 완료!", { id: toastId });
+      toast.success("이미지가 성공적으로 생성되었습니다!", { id: toastId });
     } catch (e: any) { 
-      toast.error(e.message || "이미지 생성 실패", { id: toastId }); 
+      toast.error(e.message || "이미지 생성에 실패했습니다.", { id: toastId }); 
     } finally { 
       setIsGeneratingImage(false); 
     }
@@ -335,10 +333,10 @@ const ChatPage = () => {
           style={{ left: contextMenu.x, top: contextMenu.y }} 
           onClick={() => setContextMenu(null)}
         >
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" onClick={() => { deleteMessage(contextMenu.id); toast.success("삭제됨"); }}>
-            <X size={14} /> 삭제
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" onClick={() => { deleteMessage(contextMenu.id); toast.success("메시지가 삭제되었습니다"); }}>
+            <X size={14} /> 메시지 삭제
           </button>
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors" onClick={() => { deleteMessagesFrom(contextMenu.id); toast.success("이후 삭제됨"); }}>
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors" onClick={() => { deleteMessagesFrom(contextMenu.id); toast.success("해당 지점 이후 대화가 삭제되었습니다"); }}>
             <Scissors size={14} /> 여기부터 이후 삭제
           </button>
         </div>
@@ -357,7 +355,7 @@ const ChatPage = () => {
           <button 
             onClick={handleNarration} 
             className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-accent active:scale-90 transition-all"
-            title="나레이션 모드"
+            title="나레이션 모드 (*사용)"
           >
             <Star size={18} />
           </button>
