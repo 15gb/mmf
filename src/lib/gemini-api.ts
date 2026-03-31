@@ -17,6 +17,14 @@ export interface WorldInfo {
   tone?: string;
 }
 
+// ⭐ 모든 카테고리에 대해 검열을 끄는 설정 (REST API 규격)
+const safetySettings = [
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+];
+
 export async function searchCharacter(query: string): Promise<CharacterInfo> {
   const { getNextKey, rotateKey } = useApiKeyStore.getState();
   let apiKey = getNextKey();
@@ -56,7 +64,8 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
           topK: 40,
           topP: 0.95,
           maxOutputTokens: 1024,
-        }
+        },
+        safetySettings, // ⭐ 검열 해제 설정 추가
       }),
     });
 
@@ -64,7 +73,7 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
       console.warn(`API key ending in ...${key.slice(-4)} is rate-limited. Rotating.`);
       rotateKey();
       const newApiKey = useApiKeyStore.getState().getNextKey();
-      if (newApiKey === key) { // All keys have been tried and failed
+      if (newApiKey === key) { 
         throw new Error("All available Gemini API keys are rate-limited.");
       }
       return makeRequest(newApiKey);
@@ -95,7 +104,6 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
        };
     } catch (e) {
       console.error("JSON parse error:", e, content);
-      // Return a valid, empty CharacterInfo object on parse failure
       return { 
         name: query, 
         persona: "", 
@@ -148,6 +156,7 @@ Respond ONLY with JSON. No markdown. No explanation.`;
           topP: 0.95,
           maxOutputTokens: 1024,
         },
+        safetySettings, // ⭐ 검열 해제 설정 추가
       }),
     });
 
