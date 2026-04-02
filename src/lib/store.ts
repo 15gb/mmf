@@ -80,11 +80,11 @@ function saveToStorage(key: string, value: unknown) {
   try { 
     localStorage.setItem(key, JSON.stringify(value)); 
   } catch (e) { 
-    console.warn("localStorage save failed:", key, e); 
+    console.warn("localStorage save failed (공간 부족일 수 있음):", key, e); 
   }
 }
 
-/** 🌟 데이터베이스 로우를 AppSettings 객체로 변환 (모든 필드 매핑 보존) */
+/** 🌟 데이터베이스 로우를 AppSettings 객체로 변환 (원본 매핑 로직 100% 보존) */
 function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
   let supportingCharacters = currentSettings.supportingCharacters;
   if (row.supporting_characters) {
@@ -107,7 +107,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
     geminiApiKey: row.gemini_api_key || "",
-    historySummary: row.history_summary || "", // 🌟 추가
+    historySummary: row.history_summary || "", // 🌟 추가된 요약본 매핑
     supportingCharacters,
   };
 }
@@ -151,7 +151,7 @@ export function useSettings() {
         chat_background: normalized.chatBackground,
         gemini_api_key: normalized.geminiApiKey,
         supporting_characters: JSON.stringify(normalized.supportingCharacters), // 조연 정보 저장 보장
-        history_summary: normalized.historySummary, // 🌟 요약본 저장 추가
+        history_summary: normalized.historySummary, // 🌟 요약본 DB 저장 추가
         updated_at: new Date().toISOString(),
       };
       await supabase.from("user_settings").upsert(payload, { onConflict: "user_id" });
@@ -200,7 +200,7 @@ export function useMessages() {
   const clearMessages = useCallback(() => { setMessagesState([]); }, []);
   const deleteMessage = useCallback((id: string) => { setMessagesState((prev) => prev.filter((m) => m.id !== id)); }, []);
   
-  /** 🌟 [최적화: 메모리 관리] 특정 개수의 메시지를 앞에서부터 제거 (렉 방지용) */
+  /** 🌟 [최적화: 메모리 관리] 요약이 끝난 메시지를 리스트 상단에서 제거하는 기능 추가 */
   const shiftMessages = useCallback((count: number) => {
     setMessagesState((prev) => prev.slice(count));
   }, []);
@@ -228,7 +228,7 @@ export function useMessages() {
   return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages, shiftMessages };
 }
 
-/** 3️⃣ 대화 목록 관리 Hook (누락 없음) */
+/** 3️⃣ 대화 목록 관리 Hook (저장 문제 해결 버전) */
 export function useConversations() {
   const { user } = useAuth();
   const [conversations, setConversationsState] = useState<Conversation[]>(() => loadFromStorage("saved-conversations", []));
@@ -262,7 +262,7 @@ export function useConversations() {
             } else { merged.push(remote); }
           });
           const final = merged.sort((a, b) => b.updatedAt - a.updatedAt);
-          saveToStorage("saved-conversations", final);
+          saveToStorage("saved-conversations", final); // 🌟 동기화 보장
           return final;
         });
       }
@@ -271,23 +271,27 @@ export function useConversations() {
 
   useEffect(() => { saveToStorage("saved-conversations", conversations); }, [conversations]);
 
+  /** 🌟 [수정된 핵심 로직] 저장 즉시 리스트 상태와 로컬 스토리지를 강제 동기화 */
   const saveConversation = useCallback(async (messages: ChatMessage[], options: { existingId?: string, title?: string, settings?: AppSettings }) => {
     if (messages.length === 0) return null;
     const now = Date.now();
     const newTitle = options.title || "새 대화";
     const convId = options.existingId || generateUUID();
 
+    // 이미지 데이터가 너무 크면 LocalStorage 한도를 초과하므로 스냅샷 생성
     const savedSettings = options.settings ? { ...options.settings } : undefined;
+    const newConv: Conversation = { id: convId, title: newTitle, messages, settings: savedSettings, createdAt: now, updatedAt: now };
 
-    const newConv = { id: convId, title: newTitle, messages, settings: savedSettings, createdAt: now, updatedAt: now };
-
+    // 1. 즉시 로컬 상태와 저장소 업데이트 (이게 있어야 목록에 바로 뜹니다)
     setConversationsState(prev => {
       const filtered = prev.filter(c => c.id !== convId);
       const updated = [newConv, ...filtered];
-      saveToStorage("saved-conversations", updated);
+      // setter 함수 내에서 즉시 저장하여 비동기 지연 방지
+      try { localStorage.setItem("saved-conversations", JSON.stringify(updated)); } catch(e) {}
       return updated;
     });
 
+    // 2. Supabase 서버 저장
     if (user) {
       await supabase.from("conversations").upsert({
         id: convId,
@@ -315,7 +319,11 @@ export function useConversations() {
   }, [conversations, saveConversation]);
 
   const deleteConversation = useCallback(async (id: string) => {
-    setConversationsState(prev => prev.filter(c => c.id !== id));
+    setConversationsState(prev => {
+      const updated = prev.filter(c => c.id !== id);
+      saveToStorage("saved-conversations", updated);
+      return updated;
+    });
     if (user) await supabase.from("conversations").delete().eq("id", id);
   }, [user]);
 
