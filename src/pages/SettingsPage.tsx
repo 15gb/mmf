@@ -66,7 +66,7 @@ const Field = ({
 const SettingsPage = () => {
   const navigate = useNavigate();
   const { settings, setSettings, resetRPContent } = useSettings();
-  const { conversations, allConversations, deleteConversation, showAutoSaves, setShowAutoSaves } = useConversations();
+  const { allConversations, deleteConversation, showAutoSaves, setShowAutoSaves } = useConversations();
   const { clearMessages } = useMessages();
   const { user, signOut } = useAuth();
   const [form, setForm] = useState<AppSettings>(settings);
@@ -79,6 +79,28 @@ const SettingsPage = () => {
 
   const update = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  /** 🌟 [조연 캐릭터 관리 로직] */
+  const handleAddCharacter = () => {
+    const newChar: SupportingCharacter = {
+      id: generateUUID(),
+      name: "",
+      persona: "",
+      avatar: "",
+    };
+    update("supportingCharacters", [...form.supportingCharacters, newChar]);
+  };
+
+  const handleRemoveCharacter = (id: string) => {
+    update("supportingCharacters", form.supportingCharacters.filter((c) => c.id !== id));
+  };
+
+  const handleUpdateCharacter = (id: string, field: keyof SupportingCharacter, value: string) => {
+    update(
+      "supportingCharacters",
+      form.supportingCharacters.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+    );
   };
 
   const handleSave = () => {
@@ -105,7 +127,6 @@ const SettingsPage = () => {
     }
   };
 
-  /** 🌟 [추가] RP 컨텐츠 초기화 실행 함수 */
   const handleFullReset = async () => {
     if (window.confirm("중요 정보(로그인, API키)를 제외한 모든 프로필, 세계관, 이미지, 노트를 초기화하시겠습니까?")) {
       await resetRPContent();
@@ -117,8 +138,8 @@ const SettingsPage = () => {
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0">
-        <button onClick={() => navigate("/")} className="p-2 -ml-2 rounded-lg text-foreground">
+      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-10">
+        <button onClick={() => navigate("/")} className="p-2 -ml-2 rounded-lg text-foreground active:opacity-50">
           <ArrowLeft size={20} />
         </button>
         <h1 className="font-semibold text-foreground">설정</h1>
@@ -127,8 +148,9 @@ const SettingsPage = () => {
         </button>
       </header>
 
-      {/* Form */}
+      {/* Form Body */}
       <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
+        {/* 1. 계정 섹션 */}
         <Section title="계정">
           {user ? (
             <div className="flex items-center justify-between">
@@ -136,7 +158,7 @@ const SettingsPage = () => {
                 <p className="text-sm font-medium text-foreground">{user.email}</p>
                 <p className="text-xs text-muted-foreground">Google 계정으로 로그인됨</p>
               </div>
-              <button onClick={async () => { await signOut(); toast.success("로그아웃 되었습니다"); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-foreground text-sm">
+              <button onClick={async () => { await signOut(); toast.success("로그아웃 되었습니다"); }} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-foreground text-sm hover:bg-muted/80">
                 <LogOut size={14} /> 로그아웃
               </button>
             </div>
@@ -148,11 +170,13 @@ const SettingsPage = () => {
           )}
         </Section>
 
+        {/* 2. 내 프로필 섹션 */}
         <Section title="내 프로필">
           <Field label="이름" value={form.myName} onChange={(v) => update("myName", v)} placeholder="내 이름" />
-          <Field label="소개" value={form.myIntro} onChange={(v) => update("myIntro", v)} multiline placeholder="자기소개" />
+          <Field label="소개" value={form.myIntro} onChange={(v) => update("myIntro", v)} multiline placeholder="자기소개 또는 내 캐릭터 설정" />
         </Section>
 
+        {/* 3. AI 캐릭터 프로필 섹션 */}
         <Section title="AI 캐릭터 프로필">
           <CharacterSearch onSelect={(data) => {
             setForm((prev) => ({
@@ -170,6 +194,47 @@ const SettingsPage = () => {
           <Field label="첫 인사말" value={form.charGreeting} onChange={(v) => update("charGreeting", v)} multiline placeholder="첫 인사말" />
         </Section>
 
+        {/* 4. ⭐ [추가] 조연 캐릭터 관리 섹션 */}
+        <Section title="조연 캐릭터 관리">
+          <div className="space-y-4">
+            {form.supportingCharacters.map((char) => (
+              <div key={char.id} className="p-4 rounded-xl bg-muted/30 border border-border relative space-y-3">
+                <button 
+                  onClick={() => handleRemoveCharacter(char.id)}
+                  className="absolute top-2 right-2 p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                >
+                  <Trash size={16} />
+                </button>
+                <ImageUploadField 
+                  label="조연 프로필 이미지" 
+                  value={char.avatar} 
+                  onChange={(v) => handleUpdateCharacter(char.id, "avatar", v)} 
+                />
+                <Field 
+                  label="조연 이름" 
+                  value={char.name} 
+                  onChange={(v) => handleUpdateCharacter(char.id, "name", v)} 
+                  placeholder="조연 이름" 
+                />
+                <Field 
+                  label="조연 설정" 
+                  value={char.persona} 
+                  onChange={(v) => handleUpdateCharacter(char.id, "persona", v)} 
+                  multiline 
+                  placeholder="성격, 관계 등" 
+                />
+              </div>
+            ))}
+            <button 
+              onClick={handleAddCharacter}
+              className="w-full py-3 rounded-xl border-2 border-dashed border-border text-muted-foreground flex items-center justify-center gap-2 hover:bg-muted/50 hover:text-foreground transition-all"
+            >
+              <Plus size={18} /> 조연 추가하기
+            </button>
+          </div>
+        </Section>
+
+        {/* 5. 채팅방 꾸미기 섹션 */}
         <Section title="채팅방 꾸미기">
           <ImageUploadField 
             label="채팅 배경 이미지" 
@@ -179,41 +244,45 @@ const SettingsPage = () => {
           />
         </Section>
 
+        {/* 6. 세계관 및 노트 섹션 */}
         <Section title="세계관 및 노트">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">세계관 검색</label>
+            <label className="text-sm font-medium text-foreground">세계관 자동 생성</label>
             <div className="flex gap-2">
-              <input type="text" value={worldQuery} onChange={(e) => setWorldQuery(e.target.value)} placeholder="키워드 입력" className="flex-1 rounded-lg bg-muted px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
-              <button onClick={handleWorldSearch} disabled={isWorldSearching} className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium">
-                {isWorldSearching ? "..." : "검색"}
+              <input type="text" value={worldQuery} onChange={(e) => setWorldQuery(e.target.value)} placeholder="키워드 입력 (예: 중세 판타지)" className="flex-1 rounded-lg bg-muted px-3 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+              <button onClick={handleWorldSearch} disabled={isWorldSearching} className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50">
+                {isWorldSearching ? "..." : "생성"}
               </button>
             </div>
           </div>
-          <Field label="세계관" value={form.worldSetting} onChange={(v) => update("worldSetting", v)} multiline placeholder="시대상, 배경 등" />
-          <Field label="노트 (장기 기억)" value={form.note} onChange={(v) => update("note", v)} multiline placeholder="AI가 기억해야 할 중요 정보" />
+          <Field label="상세 세계관" value={form.worldSetting} onChange={(v) => update("worldSetting", v)} multiline placeholder="시대상, 배경 설명" />
+          <Field label="노트 (장기 기억)" value={form.note} onChange={(v) => update("note", v)} multiline placeholder="AI가 기억해야 할 특별한 사건이나 정보" />
 
+          {/* API 키 설정 */}
           <div className="mt-6 pt-5 border-t border-border/50 space-y-2">
             <label className="text-sm font-medium text-foreground flex items-center gap-2">
               <Key size={16} className="text-primary" /> Gemini API Key
             </label>
             <input type="password" value={form.geminiApiKey || ""} onChange={(e) => update("geminiApiKey", e.target.value)} placeholder="AIzaSy..." className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-            <p className="text-[10px] text-muted-foreground italic px-1">* 쉼표(,)로 구분하여 최대 3개까지 입력 가능합니다.</p>
+            <p className="text-[10px] text-muted-foreground italic px-1">* 쉼표(,)로 구분하여 최대 3개까지 로테이션 가능합니다.</p>
           </div>
         </Section>
 
+        {/* 7. 데이터 관리 섹션 */}
         <Section title="데이터 관리">
           <div className="space-y-4">
-            {/* 🌟 [추가] 컨텐츠 초기화 버튼 */}
+            {/* 컨텐츠 초기화 버튼 */}
             <div className="flex items-center justify-between p-1">
               <div>
                 <p className="text-sm font-medium text-foreground">컨텐츠 초기화</p>
-                <p className="text-xs text-muted-foreground">프로필, 이미지, 세계관, 노트를 비웁니다</p>
+                <p className="text-xs text-muted-foreground">모든 프로필, 조연, 이미지, 노트를 삭제합니다</p>
               </div>
               <button onClick={handleFullReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-destructive text-destructive text-sm font-medium active:scale-95 transition-transform">
                 <Eraser size={14} /> 초기화
               </button>
             </div>
 
+            {/* 자동저장 표시 설정 */}
             <div className="flex items-center justify-between p-1 pt-2 border-t border-border/30">
               <div>
                 <p className="text-sm font-medium">자동저장 파일 표시</p>
@@ -224,9 +293,10 @@ const SettingsPage = () => {
               </button>
             </div>
 
+            {/* 모든 대화 삭제 */}
             <div className="flex items-center justify-between pt-2 border-t border-border/30">
               <div>
-                <p className="text-sm font-medium text-foreground">모든 대화 삭제</p>
+                <p className="text-sm font-medium text-foreground">모든 대화 기록 삭제</p>
                 <p className="text-xs text-muted-foreground">저장된 {allConversations.length}개의 대화를 모두 삭제합니다</p>
               </div>
               <AlertDialog>
@@ -235,14 +305,14 @@ const SettingsPage = () => {
                     <Trash2 size={14} /> 삭제
                   </button>
                 </AlertDialogTrigger>
-                <AlertDialogContent>
+                <AlertDialogContent className="rounded-2xl">
                   <AlertDialogHeader>
                     <AlertDialogTitle>모든 대화를 삭제할까요?</AlertDialogTitle>
-                    <AlertDialogDescription>이 작업은 되돌릴 수 없으며 모든 기록이 삭제됩니다.</AlertDialogDescription>
+                    <AlertDialogDescription>이 작업은 되돌릴 수 없으며 대화 기록이 영구적으로 소멸됩니다.</AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>취소</AlertDialogCancel>
-                    <AlertDialogAction className="bg-destructive" onClick={async () => { for (const c of allConversations) await deleteConversation(c.id); toast.success("삭제 완료"); }}>삭제</AlertDialogAction>
+                    <AlertDialogCancel className="rounded-xl">취소</AlertDialogCancel>
+                    <AlertDialogAction className="bg-destructive rounded-xl" onClick={async () => { for (const c of allConversations) await deleteConversation(c.id); toast.success("모든 대화가 삭제되었습니다."); }}>삭제</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>

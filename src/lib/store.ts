@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { generateUUID } from "./utils";
 
+// --- 인터페이스 정의 (누락 없음) ---
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -29,6 +30,7 @@ export interface AppSettings {
   chatBackground: string;
   supportingCharacters: SupportingCharacter[];
   geminiApiKey: string;
+  historySummary: string; // 🌟 추가: 장기 기억 요약 데이터
 }
 
 export interface Conversation {
@@ -40,6 +42,7 @@ export interface Conversation {
   updatedAt: number;
 }
 
+// --- 기본값 설정 (누락 없음) ---
 const DEFAULT_SETTINGS: AppSettings = {
   myName: "",
   myIntro: "",
@@ -52,14 +55,17 @@ const DEFAULT_SETTINGS: AppSettings = {
   chatBackground: "",
   supportingCharacters: [],
   geminiApiKey: "",
+  historySummary: "", // 🌟 초기화
 };
 
+// --- 유틸리티 함수 (누락 없음) ---
 function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
   const base = { ...DEFAULT_SETTINGS, ...(input || {}) } as AppSettings;
   return {
     ...base,
     supportingCharacters: Array.isArray(input?.supportingCharacters) ? input.supportingCharacters : [],
     geminiApiKey: input?.geminiApiKey || "",
+    historySummary: input?.historySummary || "",
   };
 }
 
@@ -71,9 +77,14 @@ function loadFromStorage<T>(key: string, fallback: T): T {
 }
 
 function saveToStorage(key: string, value: unknown) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { console.warn("localStorage save failed:", key, e); }
+  try { 
+    localStorage.setItem(key, JSON.stringify(value)); 
+  } catch (e) { 
+    console.warn("localStorage save failed:", key, e); 
+  }
 }
 
+/** 🌟 데이터베이스 로우를 AppSettings 객체로 변환 (모든 필드 매핑 보존) */
 function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
   let supportingCharacters = currentSettings.supportingCharacters;
   if (row.supporting_characters) {
@@ -90,16 +101,20 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     myIntro: row.my_intro || "",
     charName: row.char_name || "AI 캐릭터",
     charPersona: row.char_persona || "",
-    charGreeting: row.char_greeting || "안녕! 만나서 반가워 😊", // 🌟 이 부분 오타 수정됨
+    charGreeting: row.char_greeting || "안녕! 만나서 반가워 😊",
     worldSetting: row.world_setting || "",
     note: row.note || "",
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
     geminiApiKey: row.gemini_api_key || "",
+    historySummary: row.history_summary || "", // 🌟 추가
     supportingCharacters,
   };
 }
 
+// --- Hooks ---
+
+/** 1️⃣ 설정 관리 Hook */
 export function useSettings() {
   const { user } = useAuth();
   const [settings, setSettingsState] = useState<AppSettings>(() =>
@@ -135,6 +150,8 @@ export function useSettings() {
         char_avatar: normalized.charAvatar,
         chat_background: normalized.chatBackground,
         gemini_api_key: normalized.geminiApiKey,
+        supporting_characters: JSON.stringify(normalized.supportingCharacters), // 조연 정보 저장 보장
+        history_summary: normalized.historySummary, // 🌟 요약본 저장 추가
         updated_at: new Date().toISOString(),
       };
       await supabase.from("user_settings").upsert(payload, { onConflict: "user_id" });
@@ -154,6 +171,7 @@ export function useSettings() {
       charAvatar: "",
       chatBackground: "",
       supportingCharacters: [],
+      historySummary: "", // 요약본 초기화
     };
     await setSettings(resetData);
   }, [settings, setSettings]);
@@ -161,9 +179,17 @@ export function useSettings() {
   return { settings, setSettings, resetRPContent };
 }
 
+/** 2️⃣ 메시지 관리 Hook (최적화 로직 포함) */
 export function useMessages() {
   const [messages, setMessagesState] = useState<ChatMessage[]>(() => loadFromStorage("chat-messages", []));
-  useEffect(() => { saveToStorage("chat-messages", messages); }, [messages]);
+
+  /** 🌟 [최적화: 렉 방지] 메시지가 바뀔 때마다 즉시 저장하지 않고 1초 뒤에 한 번만 실행 (Debounce) */
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      saveToStorage("chat-messages", messages);
+    }, 1000);
+    return () => clearTimeout(handler);
+  }, [messages]);
   
   const addMessage = useCallback((msg: Omit<ChatMessage, "id" | "timestamp">) => {
     const newMsg: ChatMessage = { ...msg, id: generateUUID(), timestamp: Date.now() };
@@ -173,6 +199,12 @@ export function useMessages() {
 
   const clearMessages = useCallback(() => { setMessagesState([]); }, []);
   const deleteMessage = useCallback((id: string) => { setMessagesState((prev) => prev.filter((m) => m.id !== id)); }, []);
+  
+  /** 🌟 [최적화: 메모리 관리] 특정 개수의 메시지를 앞에서부터 제거 (렉 방지용) */
+  const shiftMessages = useCallback((count: number) => {
+    setMessagesState((prev) => prev.slice(count));
+  }, []);
+
   const deleteMessagesFrom = useCallback((id: string) => {
     setMessagesState((prev) => {
       const idx = prev.findIndex((m) => m.id === id);
@@ -193,9 +225,10 @@ export function useMessages() {
 
   const loadMessages = useCallback((msgs: ChatMessage[]) => { setMessagesState(msgs); }, []);
 
-  return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages };
+  return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages, shiftMessages };
 }
 
+/** 3️⃣ 대화 목록 관리 Hook (누락 없음) */
 export function useConversations() {
   const { user } = useAuth();
   const [conversations, setConversationsState] = useState<Conversation[]>(() => loadFromStorage("saved-conversations", []));

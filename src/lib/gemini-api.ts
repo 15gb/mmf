@@ -17,7 +17,10 @@ export interface WorldInfo {
   tone?: string;
 }
 
-// ⭐ 모든 카테고리에 대해 검열을 끄는 설정 (REST API 규격)
+/** 🌟 모델 설정: 사용자 요청에 따라 Gemini 3.1 Flash Lite Preview 사용 */
+const MODEL_NAME = "gemini-3.1-flash-lite-preview";
+
+/** 🌟 모든 카테고리에 대해 검열을 끄는 설정 (원본 보존) */
 const safetySettings = [
   { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
   { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -25,6 +28,7 @@ const safetySettings = [
   { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
 ];
 
+/** 1️⃣ 캐릭터 검색 및 프로필 생성 (원본 재귀 로직 및 정제 로직 100% 보존) */
 export async function searchCharacter(query: string): Promise<CharacterInfo> {
   const { getNextKey, rotateKey } = useApiKeyStore.getState();
   let apiKey = getNextKey();
@@ -44,7 +48,7 @@ export async function searchCharacter(query: string): Promise<CharacterInfo> {
 
 Respond ONLY with valid JSON. No markdown, no explanation.`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -64,8 +68,9 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
           topK: 40,
           topP: 0.95,
           maxOutputTokens: 1024,
+          response_mime_type: "application/json", // 🌟 3.1 모델의 JSON 강제 응답 기능 추가
         },
-        safetySettings, // ⭐ 검열 해제 설정 추가
+        safetySettings, 
       }),
     });
 
@@ -89,6 +94,7 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     
     try {
+      // 🌟 원본 정제 로직 보존
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleaned);
       
@@ -97,6 +103,7 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
          persona: parsed.persona || "",
          speech_style: parsed.speech_style || "",
          greeting: parsed.greeting || "",
+         // 🌟 원본 데이터 구조(avatar stringify) 보존
          avatar: JSON.stringify({
            urls: parsed.avatar_urls || [],
            description: parsed.visual_description || ""
@@ -117,6 +124,7 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
   return makeRequest(apiKey);
 }
 
+/** 2️⃣ 세계관 자동 생성 (원본 로직 100% 보존) */
 export async function searchWorld(query: string): Promise<WorldInfo> {
   const { getNextKey, rotateKey } = useApiKeyStore.getState();
   let apiKey = getNextKey();
@@ -137,7 +145,7 @@ When given a world/setting keyword (anime/game/comic/novel setting or an origina
 
 Respond ONLY with JSON. No markdown. No explanation.`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-lite-latest:generateContent?key=${key}`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -155,8 +163,9 @@ Respond ONLY with JSON. No markdown. No explanation.`;
           topK: 40,
           topP: 0.95,
           maxOutputTokens: 1024,
+          response_mime_type: "application/json",
         },
-        safetySettings, // ⭐ 검열 해제 설정 추가
+        safetySettings,
       }),
     });
 
@@ -178,6 +187,7 @@ Respond ONLY with JSON. No markdown. No explanation.`;
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
     try {
+      // 🌟 원본 정제 로직 보존
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleaned);
       return {
@@ -198,4 +208,43 @@ Respond ONLY with JSON. No markdown. No explanation.`;
   };
 
   return makeRequest(apiKey);
+}
+
+/** 3️⃣ 🌟 대화 기록 요약 (메모리 압축 기능 - 최신 모델 적용) */
+export async function summarizeHistory(
+  messages: { role: string; content: string }[], 
+  currentSummary: string, 
+  apiKey: string
+): Promise<string> {
+  // 🌟 요약 시에도 3.1 Flash Lite 모델 사용
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
+  
+  const historyText = messages.map(m => `${m.role}: ${m.content}`).join("\n");
+  const prompt = `
+    [Current Story Summary]: ${currentSummary || "None"}
+    
+    [New Conversation to Add]:
+    ${historyText}
+    
+    [Task]:
+    위의 새로운 대화 내용을 바탕으로 '현재까지의 이야기 진행 상황'을 3~5문장 내외의 한국어로 짧게 업데이트해라. 
+    중요한 사건, 장소 변경, 캐릭터 간의 관계 변화를 반드시 포함하라. 
+    답변은 오직 업데이트된 요약문만 출력하라.
+  `;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        contents: [{ parts: [{ text: prompt }] }],
+        safetySettings, // 🌟 요약 중 검열 방지를 위해 원본 safetySettings 적용
+      })
+    });
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text.trim() || currentSummary;
+  } catch (e) {
+    console.error("요약 실패:", e);
+    return currentSummary;
+  }
 }
