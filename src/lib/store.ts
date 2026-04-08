@@ -228,7 +228,7 @@ export function useMessages() {
   return { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages, shiftMessages };
 }
 
-/** 3️⃣ 대화 목록 관리 Hook (저장 문제 해결 버전) */
+/** 3️⃣ 대화 목록 관리 Hook (자동저장 슬롯 단일화 버전) */
 export function useConversations() {
   const { user } = useAuth();
   const [conversations, setConversationsState] = useState<Conversation[]>(() => loadFromStorage("saved-conversations", []));
@@ -262,7 +262,7 @@ export function useConversations() {
             } else { merged.push(remote); }
           });
           const final = merged.sort((a, b) => b.updatedAt - a.updatedAt);
-          saveToStorage("saved-conversations", final); // 🌟 동기화 보장
+          saveToStorage("saved-conversations", final); 
           return final;
         });
       }
@@ -278,20 +278,16 @@ export function useConversations() {
     const newTitle = options.title || "새 대화";
     const convId = options.existingId || generateUUID();
 
-    // 이미지 데이터가 너무 크면 LocalStorage 한도를 초과하므로 스냅샷 생성
     const savedSettings = options.settings ? { ...options.settings } : undefined;
     const newConv: Conversation = { id: convId, title: newTitle, messages, settings: savedSettings, createdAt: now, updatedAt: now };
 
-    // 1. 즉시 로컬 상태와 저장소 업데이트 (이게 있어야 목록에 바로 뜹니다)
     setConversationsState(prev => {
       const filtered = prev.filter(c => c.id !== convId);
       const updated = [newConv, ...filtered];
-      // setter 함수 내에서 즉시 저장하여 비동기 지연 방지
       try { localStorage.setItem("saved-conversations", JSON.stringify(updated)); } catch(e) {}
       return updated;
     });
 
-    // 2. Supabase 서버 저장
     if (user) {
       await supabase.from("conversations").upsert({
         id: convId,
@@ -305,17 +301,23 @@ export function useConversations() {
     return convId;
   }, [user]);
 
+  /** 🌟 [수정: 렉 방지 최적화] 슬롯 1개만 사용하는 고정 자동저장 기능 */
   const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
     if (messages.length === 0) return;
-    const baseTitle = settings.charName || "대화";
-    const lastIdx = parseInt(localStorage.getItem("auto-save-counter") || "0");
-    const nextIdx = lastIdx >= 5 ? 1 : lastIdx + 1;
-    localStorage.setItem("auto-save-counter", nextIdx.toString());
 
-    const autoTitle = `${baseTitle} - 자동저장(${nextIdx})`;
+    // 슬롯 이름을 고정하여 검색/생성 부하를 최소화 (렉 방지 핵심)
+    const charName = settings.charName || "AI 캐릭터";
+    const autoTitle = `[자동저장] ${charName}`;
+    
+    // 기존 대화 목록에서 해당 고정 제목을 가진 슬롯이 있는지 확인
     const existing = conversations.find(c => c.title === autoTitle);
 
-    await saveConversation(messages, { existingId: existing?.id, title: autoTitle, settings });
+    // 슬롯이 있으면 덮어쓰고(Update), 없으면 새로 생성(Create)하여 항상 1개만 유지
+    await saveConversation(messages, { 
+      existingId: existing?.id, 
+      title: autoTitle, 
+      settings 
+    });
   }, [conversations, saveConversation]);
 
   const deleteConversation = useCallback(async (id: string) => {
@@ -328,7 +330,7 @@ export function useConversations() {
   }, [user]);
 
   const displayConversations = useMemo(() => {
-    return conversations.filter(c => showAutoSaves ? true : !c.title.includes("- 자동저장("));
+    return conversations.filter(c => showAutoSaves ? true : !c.title.includes("[자동저장]"));
   }, [conversations, showAutoSaves]);
 
   return { conversations: displayConversations, allConversations: conversations, saveConversation, autoSaveConversation, deleteConversation, showAutoSaves, setShowAutoSaves };

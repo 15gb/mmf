@@ -4,7 +4,6 @@ import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIc
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
-import { summarizeHistory } from "@/lib/gemini-api"; 
 import { generateUUID } from "@/lib/utils";
 import { toast } from "sonner";
 import { generateImage, encodeImageMessage, decodeImageMessage } from "@/lib/image-api";
@@ -46,7 +45,7 @@ const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   
   const { settings, setSettings: updateSettings } = useSettings();
-  const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages, shiftMessages } = useMessages();
+  const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
   const [input, setInput] = useState("");
@@ -67,7 +66,7 @@ const ChatPage = () => {
     allConvsRef.current = allConversations;
   }, [messages, settings, allConversations]);
 
-  /** 📂 대화 불러오기 및 설정 복구 로직 */
+  /** 📂 대화 불러오기 및 설정 복구 로직 (원본 보존) */
   useEffect(() => {
     const loadId = searchParams.get("load");
     const isNew = searchParams.get("new");
@@ -77,12 +76,10 @@ const ChatPage = () => {
       setCurrentConvId(null);
       setSearchParams({}, { replace: true });
     } else if (loadId) {
-      // 🌟 [수정] 대화 목록에서 일치하는 ID 찾기
       const conv = allConversations.find((c) => c.id === loadId);
       if (conv) { 
         loadMessages(conv.messages); 
         setCurrentConvId(conv.id); 
-        // 저장 당시의 설정(이미지, 배경 등)을 시스템에 즉시 적용
         if (conv.settings) {
           updateSettings(conv.settings);
         }
@@ -91,29 +88,7 @@ const ChatPage = () => {
     }
   }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages, updateSettings]);
 
-  /** 🌟 [최적화] 자동 메모리 압축 로직 (렉 방지 및 장기 기억) */
-  useEffect(() => {
-    const handleMemoryCompression = async () => {
-      // 메시지 60개 초과 시 오래된 30개를 요약하고 리스트에서 삭제
-      if (messages.length > 60 && !isLoading) {
-        const toSummarize = messages.slice(0, 30);
-        const apiKey = settings.geminiApiKey.split(',')[0].trim();
-        
-        if (!apiKey) return;
-
-        try {
-          console.log("메모리 최적화 시작...");
-          const newSummary = await summarizeHistory(toSummarize, settings.historySummary, apiKey);
-          updateSettings({ ...settings, historySummary: newSummary });
-          shiftMessages(30); 
-          toast.info("오래된 대화가 요약되어 메모리에 저장되었습니다 (성능 최적화).");
-        } catch (e) {
-          console.error("요약 실패:", e);
-        }
-      }
-    };
-    handleMemoryCompression();
-  }, [messages.length, isLoading, settings, updateSettings, shiftMessages]);
+  /** 🌟 [삭제됨] 자동 메모리 압축 로직 (기억 왜곡 방지를 위해 제거) */
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -150,7 +125,7 @@ const ChatPage = () => {
     return (settings.charName || "새 대화").trim().slice(0, 30);
   }, [settings.charName]);
 
-  /** 💾 수동 저장 로직 (중복 확인 및 제목 변경 로직 완벽 보존 + 버그 수정) */
+  /** 💾 수동 저장 로직 (중복 확인 및 제목 변경 로직 완벽 보존) */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
@@ -160,14 +135,12 @@ const ChatPage = () => {
     const currentTitle = getDefaultSaveTitle();
     const settingsSnapshot = { ...settingsRef.current };
 
-    // 1. 이미 불러온 대화가 있거나 현재 세션에서 저장한 적이 있는 경우 (업데이트)
     if (currentConvId) {
       const savedId = await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings: settingsSnapshot });
       if (savedId) toast.success("대화 내용이 현재 슬롯에 업데이트되었습니다");
       return;
     }
 
-    // 2. 새로운 저장이지만 기존에 같은 제목의 대화가 있는 경우
     const sameTitleConv = allConversations.find(c => c.title === currentTitle);
 
     if (sameTitleConv) {
@@ -176,7 +149,7 @@ const ChatPage = () => {
         const id = await saveConversation(messages, { existingId: sameTitleConv.id, title: currentTitle, settings: settingsSnapshot });
         if (id) {
           setCurrentConvId(id);
-          toast.success("기존 슬롯에 성공적으로 덮어씌웠습니다!");
+          toast.success("기존 슬롯에 덮어쓰기 완료!");
         }
       } else {
         const newTitle = window.prompt("새로운 저장 제목을 입력해주세요:", `${currentTitle} (1)`);
@@ -189,16 +162,15 @@ const ChatPage = () => {
         }
       }
     } else {
-      // 3. 완전히 새로운 저장
       const id = await saveConversation(messages, { title: currentTitle, settings: settingsSnapshot });
       if (id) {
         setCurrentConvId(id);
-        toast.success("대화가 목록에 성공적으로 저장되었습니다");
+        toast.success("대화가 저장되었습니다");
       }
     }
   }, [messages, currentConvId, allConversations, saveConversation, getDefaultSaveTitle]);
 
-  /** 🚀 전송 핸들러 (내 캐릭터 대행 + 대사 50% + 요약본 반영) */
+  /** 🚀 전송 핸들러 (내 캐릭터 대행 + 대사 50% + 200개 기억력) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -214,28 +186,26 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 시스템 프롬프트 구성 (요약본 및 설정 포함)
+    // 시스템 프롬프트 구성 (요약 데이터 참조 제거)
     let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
-[중요 장기 기억]: ${settings.historySummary || "없음"}
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
 
 [채팅 스타일 규칙]
-1. **대화 비중 강화:** 답변의 50% 이상을 직접적인 대사("")로 채워라.
+1. **대화 비중 강화:** 답변의 50% 이상을 캐릭터의 직접적인 대사("")로 구성하라.
 2. **길이 단축:** 전체 답변은 약 5~8문장 사이로 짧고 핵심적으로 작성하라.
-3. **무검열/자유형:** 상황에 맞춰 생동감 있게 반응하라.
-4. **현장감:** "${settings.charName}"가 유저에게 직접 상호작용하는 느낌을 강조하라.`;
+3. **무검열/자유형:** 상황에 맞춰 생생하고 창의적으로 반응하라.
+4. **시점:** 캐릭터가 유저에게 직접 상호작용하는 느낌을 강조하라.`;
 
     if (isAuto) {
-      // 🌟 [자동 진행 기능 강화]
       systemPrompt += `\n\n[특수: 자동 진행 모드]
-- 현재 유저("${settings.myName}")의 입력이 없으므로, 네가 먼저 유저 캐릭터("${settings.myName}")가 할 법한 짧은 행동과 대사를 1~2문장으로 먼저 작성하라.
-- 그 뒤에 곧바로 그에 반응하는 AI 캐릭터("${settings.charName}")의 대사와 행동을 이어서 작성하라.
-- 반드시 **유저 캐릭터 선(先) 행동 -> AI 캐릭터 반응** 순서로 소설처럼 하나의 답변에 담아라.`;
+- 현재 유저("${settings.myName}")의 입력이 없으므로, 네가 먼저 유저 캐릭터("${settings.myName}")가 할 법한 짧은 행동과 대사를 작성하라.
+- 그 뒤에 곧바로 그에 반응하는 AI 캐릭터("${settings.charName}")의 대사와 행동을 이어서 작성하라.`;
     } else if (isSummon) {
-      systemPrompt += `\n\n[특수: 엑스트라 등장] 현재 상황에 어울리는 새로운 인물을 짧게 등장시켜 상호작용하라.`;
+      systemPrompt += `\n\n[특수: 엑스트라 등장] 상황에 맞는 새로운 인물을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
     }
 
-    const history = messages.slice(-15).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
+    // 🌟 최신 200개의 대화를 참조하여 요약 없이도 맥락을 완벽하게 유지합니다.
+    const history = messages.slice(-200).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     const combinedPrompt = `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
 
     let fullContent = "";
@@ -255,7 +225,6 @@ const ChatPage = () => {
         },
         onDone: () => {
           setIsLoading(false);
-          // 스플릿 마커 처리 (원본 로직 유지)
           if (fullContent && fullContent.includes(SPLIT_MARKER)) {
             const parts = fullContent.split(SPLIT_MARKER).map(p => p.trim()).filter(Boolean);
             if (parts.length > 1) {
@@ -266,7 +235,7 @@ const ChatPage = () => {
         },
         onError: (err) => {
           setIsLoading(false);
-          toast.error(typeof err === 'string' ? err : "메시지 전송 중 오류가 발생했습니다.");
+          toast.error(typeof err === 'string' ? err : "통신 중 오류가 발생했습니다.");
         }
       });
     } catch (error: any) { 
@@ -332,7 +301,6 @@ const ChatPage = () => {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
-      {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-20">
         <button onClick={() => navigate("/settings")} className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity overflow-hidden max-w-[55%]">
           <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold overflow-hidden shrink-0">
@@ -364,7 +332,6 @@ const ChatPage = () => {
         </div>
       </header>
 
-      {/* Chat Messages */}
       <div 
         ref={scrollRef} 
         className="flex-1 overflow-y-auto px-3 py-4 space-y-4 relative" 
@@ -389,7 +356,6 @@ const ChatPage = () => {
         )}
       </div>
 
-      {/* Context Menu */}
       {contextMenu && (
         <div 
           className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" 
@@ -405,36 +371,23 @@ const ChatPage = () => {
         </div>
       )}
 
-      {/* Input Area */}
       <div className="shrink-0 border-t border-border bg-card px-3 py-3 safe-area-bottom">
         <div className="flex items-end gap-2">
           <textarea 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), handleSend(input.trim() === "" ? "[AUTO]" : undefined))} 
-            placeholder="메시지..." 
+            placeholder="메시지를 입력하세요..." 
             rows={1} 
             className="flex-1 resize-none rounded-2xl bg-muted px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 max-h-32" 
           />
-          <button 
-            onClick={handleNarration} 
-            className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground active:scale-90 transition-all"
-            title="나레이션 (*)"
-          >
+          <button onClick={handleNarration} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground active:scale-90 transition-all" title="나레이션 (*)">
             <Star size={18} />
           </button>
-          <button 
-            onClick={handleSummonCharacter} 
-            className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground active:scale-90 transition-all"
-            title="조연"
-          >
+          <button onClick={handleSummonCharacter} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground active:scale-90 transition-all" title="조연 등장">
             <Users size={18} />
           </button>
-          <button 
-            onClick={() => handleSend(input.trim() === "" ? "[AUTO]" : undefined)} 
-            disabled={isLoading} 
-            className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 active:scale-95 transition-all shadow-md"
-          >
+          <button onClick={() => handleSend(input.trim() === "" ? "[AUTO]" : undefined)} disabled={isLoading} className="w-10 h-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-md">
             <Send size={18} />
           </button>
         </div>
