@@ -103,6 +103,23 @@ const SettingsPage = () => {
     );
   };
 
+  /** 🌟 [추가됨] 조연 캐릭터 AI 자동 완성 적용 로직 */
+  const handleAutoFillSupporting = (id: string, data: any) => {
+    setForm((prev) => ({
+      ...prev,
+      supportingCharacters: prev.supportingCharacters.map((c) => 
+        c.id === id 
+          ? {
+              ...c,
+              name: data.name || c.name,
+              persona: data.persona || c.persona,
+              avatar: data.avatar || c.avatar,
+            }
+          : c
+      )
+    }));
+  };
+
   const handleSave = () => {
     setSettings(form);
     toast.success("설정이 저장되었습니다!");
@@ -194,17 +211,27 @@ const SettingsPage = () => {
           <Field label="첫 인사말" value={form.charGreeting} onChange={(v) => update("charGreeting", v)} multiline placeholder="첫 인사말" />
         </Section>
 
-        {/* 4. ⭐ [추가] 조연 캐릭터 관리 섹션 */}
+        {/* 4. ⭐ 조연 캐릭터 관리 섹션 (AI 검색 기능 추가) */}
         <Section title="조연 캐릭터 관리">
           <div className="space-y-4">
             {form.supportingCharacters.map((char) => (
-              <div key={char.id} className="p-4 rounded-xl bg-muted/30 border border-border relative space-y-3">
+              <div key={char.id} className="p-4 pt-10 rounded-xl bg-muted/30 border border-border relative space-y-3">
                 <button 
                   onClick={() => handleRemoveCharacter(char.id)}
-                  className="absolute top-2 right-2 p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                  className="absolute top-2 right-2 p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-colors z-10"
+                  title="조연 삭제"
                 >
                   <Trash size={16} />
                 </button>
+                
+                {/* 🌟 조연 검색용 AI 자동 완성 컴포넌트 추가 */}
+                <div className="mb-2">
+                  <CharacterSearch onSelect={(data) => {
+                    handleAutoFillSupporting(char.id, data);
+                    toast.success("조연 정보가 자동으로 채워졌습니다!");
+                  }} />
+                </div>
+
                 <ImageUploadField 
                   label="조연 프로필 이미지" 
                   value={char.avatar} 

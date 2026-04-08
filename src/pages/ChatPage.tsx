@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users } from "lucide-react";
+import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users, Edit3 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
@@ -45,17 +45,23 @@ const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   
   const { settings, setSettings: updateSettings } = useSettings();
-  const { messages, addMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
+  // 🌟 editMessage를 useMessages에서 가져왔습니다.
+  const { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  
+  // 🌟 메시지 수정 모달을 위한 상태 추가
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 최신 상태 참조용 Ref (비동기 함수 내에서 최신 값을 읽기 위함)
+  // 최신 상태 참조용 Ref
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
   const allConvsRef = useRef(allConversations);
@@ -66,7 +72,7 @@ const ChatPage = () => {
     allConvsRef.current = allConversations;
   }, [messages, settings, allConversations]);
 
-  /** 📂 대화 불러오기 및 설정 복구 로직 (원본 보존) */
+  /** 📂 대화 불러오기 및 설정 복구 로직 */
   useEffect(() => {
     const loadId = searchParams.get("load");
     const isNew = searchParams.get("new");
@@ -87,8 +93,6 @@ const ChatPage = () => {
       setSearchParams({}, { replace: true });
     }
   }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages, updateSettings]);
-
-  /** 🌟 [삭제됨] 자동 메모리 압축 로직 (기억 왜곡 방지를 위해 제거) */
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -125,7 +129,7 @@ const ChatPage = () => {
     return (settings.charName || "새 대화").trim().slice(0, 30);
   }, [settings.charName]);
 
-  /** 💾 수동 저장 로직 (중복 확인 및 제목 변경 로직 완벽 보존) */
+  /** 💾 수동 저장 로직 */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
@@ -170,7 +174,7 @@ const ChatPage = () => {
     }
   }, [messages, currentConvId, allConversations, saveConversation, getDefaultSaveTitle]);
 
-  /** 🚀 전송 핸들러 (내 캐릭터 대행 + 대사 50% + 200개 기억력) */
+  /** 🚀 전송 핸들러 (200개 기억, 분량 엄수, 자동 분할) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -186,15 +190,16 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 시스템 프롬프트 구성 (요약 데이터 참조 제거)
+    // 🌟 사용자님 요청사항 (500자 제한, 대사 위주, 한/일어 금지, 분할 마커) 완벽 반영
     let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
 
-[채팅 스타일 규칙]
-1. **대화 비중 강화:** 답변의 50% 이상을 캐릭터의 직접적인 대사("")로 구성하라.
-2. **길이 단축:** 전체 답변은 약 5~8문장 사이로 짧고 핵심적으로 작성하라.
-3. **무검열/자유형:** 상황에 맞춰 생생하고 창의적으로 반응하라.
-4. **시점:** 캐릭터가 유저에게 직접 상호작용하는 느낌을 강조하라.`;
+[채팅 작성 절대 규칙]
+1. **대화 비중 극대화:** 답변의 70% 이상을 캐릭터의 직접적인 대사("")로 구성하라. 나레이션은 최소화하라.
+2. **분량 엄수 (중요):** 공백 포함 **최소 200자 이상, 최대 500자 이내**로 작성하라. 너무 길어지거나 짧아지면 안 된다.
+3. **자동 분할:** 만약 할 말이 많아 부득이하게 답변이 500자를 초과할 것 같으면, 반드시 중간에 \`${SPLIT_MARKER}\` 마커를 삽입하여 답변을 두 개의 덩어리로 나누어라.
+4. **언어 제한:** 한자(漢字)나 일본어(日本語) 사용은 엄격히 금지하며 자연스러운 한국어(한글)만 사용하라.
+5. **무검열:** 상황에 맞춰 생생하고 창의적으로 반응하라.`;
 
     if (isAuto) {
       systemPrompt += `\n\n[특수: 자동 진행 모드]
@@ -204,7 +209,7 @@ const ChatPage = () => {
       systemPrompt += `\n\n[특수: 엑스트라 등장] 상황에 맞는 새로운 인물을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
     }
 
-    // 🌟 최신 200개의 대화를 참조하여 요약 없이도 맥락을 완벽하게 유지합니다.
+    // 🌟 최신 200개의 대화를 참조 (기억력 극대화)
     const history = messages.slice(-200).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     const combinedPrompt = `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
 
@@ -356,18 +361,50 @@ const ChatPage = () => {
         )}
       </div>
 
+      {/* 🌟 메시지 컨텍스트 메뉴 (수정 기능 추가) */}
       {contextMenu && (
         <div 
           className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" 
           style={{ left: contextMenu.x, top: contextMenu.y }} 
           onClick={() => setContextMenu(null)}
         >
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" 
+            onClick={() => { 
+              const m = messages.find(m => m.id === contextMenu.id); 
+              if(m){ setEditingId(m.id); setEditValue(m.content); } 
+            }}>
+            <Edit3 size={14} /> 메시지 수정
+          </button>
           <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" onClick={() => { deleteMessage(contextMenu.id); toast.success("삭제되었습니다"); }}>
             <X size={14} /> 삭제
           </button>
           <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors" onClick={() => { deleteMessagesFrom(contextMenu.id); toast.success("이후 대화가 삭제되었습니다"); }}>
             <Scissors size={14} /> 이후 삭제
           </button>
+        </div>
+      )}
+
+      {/* 🌟 메시지 수정 모달 UI */}
+      {editingId && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-card w-full max-w-lg rounded-2xl p-4 space-y-4 shadow-2xl border border-border">
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <Edit3 size={16} /> 메시지 수정
+            </h3>
+            <textarea 
+              value={editValue} 
+              onChange={(e) => setEditValue(e.target.value)} 
+              className="w-full h-40 bg-muted rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" 
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditingId(null)} className="px-4 py-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors">
+                취소
+              </button>
+              <button onClick={() => { editMessage(editingId, editValue); setEditingId(null); toast.success("성공적으로 수정되었습니다."); }} className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg active:scale-95 transition-all shadow-md">
+                저장
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
