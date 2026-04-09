@@ -11,10 +11,8 @@ import ImageCard from "@/components/ImageCard";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
-/** 🌟 렉 방지를 위한 개별 메시지 컴포넌트 최적화 (React.memo) */
 const ChatMessageItem = React.memo(({ msg, charName, charAvatar, renderContent, onContextMenu }: any) => {
   const isUser = msg.role === "user";
-  // 조연 캐릭터 또는 이름이 포함되지 않은 메시지 판별
   const isExtra = msg.role === "assistant" && (msg.content.trim().startsWith("**") || !msg.content.includes(charName));
 
   return (
@@ -45,7 +43,6 @@ const ChatPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   
   const { settings, setSettings: updateSettings } = useSettings();
-  // 🌟 editMessage를 useMessages에서 가져왔습니다.
   const { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
@@ -53,7 +50,6 @@ const ChatPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   
-  // 🌟 메시지 수정 모달을 위한 상태 추가
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   
@@ -64,15 +60,14 @@ const ChatPage = () => {
   // 최신 상태 참조용 Ref
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
-  const allConvsRef = useRef(allConversations);
+  const autoSaveRef = useRef(autoSaveConversation);
 
   useEffect(() => {
     messagesRef.current = messages;
     settingsRef.current = settings;
-    allConvsRef.current = allConversations;
-  }, [messages, settings, allConversations]);
+    autoSaveRef.current = autoSaveConversation;
+  }, [messages, settings, autoSaveConversation]);
 
-  /** 📂 대화 불러오기 및 설정 복구 로직 */
   useEffect(() => {
     const loadId = searchParams.get("load");
     const isNew = searchParams.get("new");
@@ -86,9 +81,7 @@ const ChatPage = () => {
       if (conv) { 
         loadMessages(conv.messages); 
         setCurrentConvId(conv.id); 
-        if (conv.settings) {
-          updateSettings(conv.settings);
-        }
+        if (conv.settings) updateSettings(conv.settings);
       }
       setSearchParams({}, { replace: true });
     }
@@ -112,24 +105,26 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
+  /** 🌟 [핵심 수정] 자동 저장이 렌더링 중첩으로 인해 무한 호출되지 않도록 의존성을 없앴습니다. 
+   * 오직 탭을 닫거나, 다른 화면으로 나갈 때 딱 한 번만 실행됩니다. */
   useEffect(() => {
     const handleExitSave = () => {
       if (messagesRef.current.length > 0) {
-        autoSaveConversation(messagesRef.current, settingsRef.current);
+        autoSaveRef.current(messagesRef.current, settingsRef.current);
       }
     };
     window.addEventListener("beforeunload", handleExitSave);
+    
     return () => {
       window.removeEventListener("beforeunload", handleExitSave);
-      handleExitSave();
+      handleExitSave(); // 컴포넌트가 꺼질 때 1회 실행
     };
-  }, [autoSaveConversation]);
+  }, []); // 빈 배열을 두어 대화 중에는 절대 재실행되지 않습니다.
 
   const getDefaultSaveTitle = useCallback(() => {
     return (settings.charName || "새 대화").trim().slice(0, 30);
   }, [settings.charName]);
 
-  /** 💾 수동 저장 로직 */
   const handleSave = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
@@ -174,7 +169,6 @@ const ChatPage = () => {
     }
   }, [messages, currentConvId, allConversations, saveConversation, getDefaultSaveTitle]);
 
-  /** 🚀 전송 핸들러 (200개 기억, 분량 엄수, 자동 분할) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -190,7 +184,6 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 🌟 사용자님 요청사항 (500자 제한, 대사 위주, 한/일어 금지, 분할 마커) 완벽 반영
     let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
 
@@ -209,7 +202,6 @@ const ChatPage = () => {
       systemPrompt += `\n\n[특수: 엑스트라 등장] 상황에 맞는 새로운 인물을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
     }
 
-    // 🌟 최신 200개의 대화를 참조 (기억력 극대화)
     const history = messages.slice(-200).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     const combinedPrompt = `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
 
@@ -361,7 +353,7 @@ const ChatPage = () => {
         )}
       </div>
 
-      {/* 🌟 메시지 컨텍스트 메뉴 (수정 기능 추가) */}
+      {/* 🌟 컨텍스트 메뉴 (수정 기능 포함) */}
       {contextMenu && (
         <div 
           className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" 

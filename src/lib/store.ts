@@ -248,12 +248,17 @@ export function useConversations() {
     return convId;
   }, [user]);
 
+  /** 🌟 [핵심 수정] 리액트 상태 대신 로컬 스토리지를 직접 뒤져서 중복을 원천 차단 */
   const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
     if (messages.length === 0) return;
-    const autoTitle = `[자동저장] ${settings.charName || "AI"}`;
-    const existing = conversations.find(c => c.title === autoTitle);
+    const autoTitle = `[자동저장] ${settings.charName || "AI 캐릭터"}`;
+    
+    // 가장 신선한 데이터(localStorage)에서 기존 자동저장 파일을 찾습니다.
+    const freshConvs = JSON.parse(localStorage.getItem("saved-conversations") || "[]") as Conversation[];
+    const existing = freshConvs.find(c => c.title === autoTitle);
+    
     await saveConversation(messages, { existingId: existing?.id, title: autoTitle, settings });
-  }, [conversations, saveConversation]);
+  }, [saveConversation]);
 
   const deleteConversation = useCallback(async (id: string) => {
     setConversationsState(prev => {
