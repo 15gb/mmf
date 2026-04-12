@@ -11,8 +11,10 @@ import ImageCard from "@/components/ImageCard";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
+/** 🌟 렉 방지를 위한 개별 메시지 컴포넌트 최적화 (React.memo) */
 const ChatMessageItem = React.memo(({ msg, charName, charAvatar, renderContent, onContextMenu }: any) => {
   const isUser = msg.role === "user";
+  // 조연 캐릭터 또는 이름이 포함되지 않은 메시지 판별
   const isExtra = msg.role === "assistant" && (msg.content.trim().startsWith("**") || !msg.content.includes(charName));
 
   return (
@@ -105,8 +107,6 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
-  /** 🌟 [핵심 수정] 자동 저장이 렌더링 중첩으로 인해 무한 호출되지 않도록 의존성을 없앴습니다. 
-   * 오직 탭을 닫거나, 다른 화면으로 나갈 때 딱 한 번만 실행됩니다. */
   useEffect(() => {
     const handleExitSave = () => {
       if (messagesRef.current.length > 0) {
@@ -119,7 +119,7 @@ const ChatPage = () => {
       window.removeEventListener("beforeunload", handleExitSave);
       handleExitSave(); // 컴포넌트가 꺼질 때 1회 실행
     };
-  }, []); // 빈 배열을 두어 대화 중에는 절대 재실행되지 않습니다.
+  }, []);
 
   const getDefaultSaveTitle = useCallback(() => {
     return (settings.charName || "새 대화").trim().slice(0, 30);
@@ -184,22 +184,24 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
+    // 🌟 [수정] 유저 및 조연 억지 개입 방지 로직 추가
     let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
 
 [채팅 작성 절대 규칙]
-1. **대화 비중 극대화:** 답변의 70% 이상을 캐릭터의 직접적인 대사("")로 구성하라. 나레이션은 최소화하라.
-2. **분량 엄수 (중요):** 공백 포함 **최소 200자 이상, 최대 500자 이내**로 작성하라. 너무 길어지거나 짧아지면 안 된다.
-3. **자동 분할:** 만약 할 말이 많아 부득이하게 답변이 500자를 초과할 것 같으면, 반드시 중간에 \`${SPLIT_MARKER}\` 마커를 삽입하여 답변을 두 개의 덩어리로 나누어라.
-4. **언어 제한:** 한자(漢字)나 일본어(日本語) 사용은 엄격히 금지하며 자연스러운 한국어(한글)만 사용하라.
-5. **무검열:** 상황에 맞춰 생생하고 창의적으로 반응하라.`;
+1. **대화 비중 극대화:** 답변의 70% 이상을 캐릭터의 직접적인 대사("")로 구성하라. 나레이션은 상황 묘사에만 짧게 써라.
+2. **분량 엄수:** 공백 포함 **최소 200자 이상, 최대 500자 이내**로 작성하라.
+3. **자동 분할:** 부득이하게 답변이 500자를 초과할 것 같으면, 반드시 중간에 \`${SPLIT_MARKER}\` 마커를 삽입하여 답변을 두 개의 덩어리로 나누어라.
+4. **언어 제한:** 한자(漢字)나 일본어(日本語) 사용은 엄격히 금지. 자연스러운 한국어(한글)만 사용하라.
+5. **개입 최소화 (핵심):** 대화 맥락상 유저나 특정 조연이 등장할 타이밍이 아니라면 억지로 이름을 부르거나 끌어들이지 마라. 억지로 유저를 쳐다보거나 유저의 의견을 묻는 등 부자연스러운 서술을 금지한다. 상황에 자연스럽게 융화시켜라.`;
 
     if (isAuto) {
-      systemPrompt += `\n\n[특수: 자동 진행 모드]
-- 현재 유저("${settings.myName}")의 입력이 없으므로, 네가 먼저 유저 캐릭터("${settings.myName}")가 할 법한 짧은 행동과 대사를 작성하라.
-- 그 뒤에 곧바로 그에 반응하는 AI 캐릭터("${settings.charName}")의 대사와 행동을 이어서 작성하라.`;
+      // 🌟 [수정] 공백(엔터) 입력 시 AI 혼자 상황을 전개하도록 규칙 전면 수정
+      systemPrompt += `\n\n[특수: 자동 진행 모드 (혼잣말/단독 행동)]
+- 현재 유저의 입력이 없다(공백 상태). 절대 유저의 행동이나 대사를 네가 대신 작성하지 마라. 유저에게 억지로 말을 걸지도 마라.
+- 오직 AI 캐릭터("${settings.charName}") 혼자만의 내면 생각, 혼잣말, 단독 행동, 혹은 주변 환경 묘사를 통해 자연스럽게 스토리를 이끌어가라.`;
     } else if (isSummon) {
-      systemPrompt += `\n\n[특수: 엑스트라 등장] 상황에 맞는 새로운 인물을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
+      systemPrompt += `\n\n[특수: 엑스트라 등장] 상황에 맞는 새로운 인물이나 설정된 조연을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
     }
 
     const history = messages.slice(-200).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
