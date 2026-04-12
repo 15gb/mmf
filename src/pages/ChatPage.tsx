@@ -11,8 +11,10 @@ import ImageCard from "@/components/ImageCard";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
+/** 🌟 렉 방지를 위한 개별 메시지 컴포넌트 최적화 (React.memo) */
 const ChatMessageItem = React.memo(({ msg, charName, charAvatar, renderContent, onContextMenu }: any) => {
   const isUser = msg.role === "user";
+  // 조연 캐릭터 또는 이름이 포함되지 않은 메시지 판별
   const isExtra = msg.role === "assistant" && (msg.content.trim().startsWith("**") || !msg.content.includes(charName));
 
   return (
@@ -57,6 +59,7 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // 최신 상태 참조용 Ref
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
   const autoSaveRef = useRef(autoSaveConversation);
@@ -114,7 +117,7 @@ const ChatPage = () => {
     
     return () => {
       window.removeEventListener("beforeunload", handleExitSave);
-      handleExitSave();
+      handleExitSave(); // 컴포넌트가 꺼질 때 1회 실행
     };
   }, []);
 
@@ -166,15 +169,15 @@ const ChatPage = () => {
     }
   }, [messages, currentConvId, allConversations, saveConversation, getDefaultSaveTitle]);
 
-  /** 🚀 1. 전송 핸들러 (자동 진행 기능 완벽 픽스) */
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
-    const content = isAuto ? "" : (overrideContent !== undefined ? overrideContent : input.trim());
+    const isSummon = overrideContent === "[SUMMON_EXTRA]";
+    const content = (isAuto || isSummon) ? "" : (overrideContent !== undefined ? overrideContent : input.trim());
     
-    if (!isAuto && content === "") return;
+    if (!isAuto && !isSummon && content === "" && overrideContent === undefined) return;
     if (isLoading) return;
 
-    if (!content.startsWith("[SYSTEM]") && content !== "" && !isAuto) {
+    if (!content.startsWith("[SYSTEM]") && content !== "" && !isAuto && !isSummon) {
       addMessage({ role: "user", content });
     }
     
@@ -185,22 +188,22 @@ const ChatPage = () => {
 성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
 
 [채팅 작성 절대 규칙]
-1. **대화 비중 극대화:** 답변의 70% 이상을 캐릭터의 직접적인 대사("")로 구성하라. 나레이션은 최소화하라.
+1. **대화 비중 극대화:** 답변의 70% 이상을 캐릭터의 직접적인 대사("")로 구성하라. 나레이션은 상황 묘사에만 짧게 써라.
 2. **분량 엄수:** 공백 포함 **최소 200자 이상, 최대 500자 이내**로 작성하라.
-3. **자동 분할:** 답변이 500자를 초과할 것 같으면, 반드시 중간에 \`${SPLIT_MARKER}\` 마커를 삽입하여 두 개의 덩어리로 나누어라.
-4. **개입 최소화:** 대화 맥락상 유저가 나설 상황이 아니라면 억지로 질문하거나 시선을 주지 마라. 상황에 맞춰 자연스럽게 융화되어라.
-5. **언어 제한:** 한자나 일본어 사용 금지. 자연스러운 한국어만 사용.`;
+3. **자동 분할:** 부득이하게 답변이 500자를 초과할 것 같으면, 반드시 중간에 \`${SPLIT_MARKER}\` 마커를 삽입하여 답변을 두 개의 덩어리로 나누어라.
+4. **언어 제한:** 한자(漢字)나 일본어(日本語) 사용은 엄격히 금지. 자연스러운 한국어(한글)만 사용하라.
+5. **개입 최소화 (핵심):** 대화 맥락상 유저나 특정 조연이 등장할 타이밍이 아니라면 억지로 이름을 부르거나 끌어들이지 마라. 억지로 유저를 쳐다보거나 유저의 의견을 묻는 등 부자연스러운 서술을 금지한다. 상황에 자연스럽게 융화시켜라.`;
 
     if (isAuto) {
       systemPrompt += `\n\n[특수: 자동 진행 모드 (혼잣말/단독 행동)]
-- 현재 유저("${settings.myName}")의 입력이 없다. 절대 유저의 대사나 행동을 네가 대신 작성하지 마라.
-- 오직 AI 캐릭터("${settings.charName}") 혼자만의 내면 생각, 혼잣말, 단독 행동, 주변 묘사만을 활용해 자연스럽게 스토리를 이끌어가라.`;
+- 현재 유저의 입력이 없다(공백 상태). 절대 유저의 행동이나 대사를 네가 대신 작성하지 마라. 유저에게 억지로 말을 걸지도 마라.
+- 오직 AI 캐릭터("${settings.charName}") 혼자만의 내면 생각, 혼잣말, 단독 행동, 혹은 주변 환경 묘사를 통해 자연스럽게 스토리를 이끌어가라.`;
+    } else if (isSummon) {
+      systemPrompt += `\n\n[특수: 엑스트라 등장] 상황에 맞는 새로운 인물이나 설정된 조연을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
     }
 
     const history = messages.slice(-200).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     
-    // 🌟 [핵심 픽스] 공백 전송 시 AI가 유저의 대답을 강제로 만들어내는 버그를 잡기 위해,
-    // isAuto 일 때는 'User:' 태그를 아예 삭제하고 시스템 메시지로 대체합니다.
     const combinedPrompt = isAuto
       ? `${systemPrompt}\n\n[기록]\n${history}\n\n[시스템: 유저의 개입 없이 시간이 흐름. 캐릭터 단독 진행]\nAI:`
       : `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
@@ -232,7 +235,7 @@ const ChatPage = () => {
         },
         onError: (err) => {
           setIsLoading(false);
-          toast.error("통신 중 오류가 발생했습니다.");
+          toast.error(typeof err === 'string' ? err : "통신 중 오류가 발생했습니다.");
         }
       });
     } catch (error: any) { 
@@ -241,20 +244,24 @@ const ChatPage = () => {
     }
   }, [input, isLoading, messages, settings, addMessage, updateLastAssistant]);
 
+  /** 🌟 [핵심 수정] 나레이션 버튼 클릭 시 AI 호출 없이 유저 채팅창에 메시지만 등록되도록 변경 */
   const handleNarration = useCallback(() => {
     if (isLoading) return;
     const trimmed = input.trim();
-    if (trimmed) handleSend(`*${trimmed}*`);
-    else setInput("*");
-  }, [input, isLoading, handleSend]);
+    if (trimmed) {
+      // AI를 호출하는 handleSend 대신, 유저 메시지만 화면에 즉시 등록합니다.
+      addMessage({ role: "user", content: `*${trimmed}*` });
+      setInput("");
+    } else {
+      setInput("*");
+    }
+  }, [input, isLoading, addMessage]);
 
-  /** 🚀 2. 조연 소환 핸들러 (투스텝 난입 시스템) */
   const handleSummonCharacter = useCallback(async () => {
     if (isLoading) return;
     setIsLoading(true);
     const toastId = toast.loading("조연이 개입할 타이밍을 엿보는 중...", { id: "summon" });
 
-    // 1단계: 조연 캐릭터의 대사만 따로 짧게 생성합니다.
     const systemPrompt = `너는 현재 설정된 조연 캐릭터 중 한 명이다. 
 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
 현재 대화 맥락을 읽고, 조연 중 한 명이 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라.
@@ -274,8 +281,6 @@ const ChatPage = () => {
           toast.dismiss(toastId);
           setIsLoading(false); 
           if (extraLine.trim()) {
-            // 2단계: 생성된 조연의 대사를 내(User)가 보낸 것처럼 handleSend에 넘깁니다.
-            // 이렇게 하면 오른쪽에 조연의 대사가 찍히고, AI(메인)가 그 조연의 말에 반응하게 됩니다.
             handleSend(extraLine.trim());
           }
         },
@@ -446,7 +451,7 @@ const ChatPage = () => {
             rows={1} 
             className="flex-1 resize-none rounded-2xl bg-muted px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 max-h-32" 
           />
-          <button onClick={handleNarration} disabled={isLoading} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground active:scale-90 transition-all disabled:opacity-40" title="나레이션 (*)">
+          <button onClick={handleNarration} disabled={isLoading} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground active:scale-90 transition-all disabled:opacity-40" title="나레이션 추가 (AI 대기)">
             <Star size={18} />
           </button>
           <button onClick={handleSummonCharacter} disabled={isLoading} className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground active:scale-90 transition-all disabled:opacity-40" title="조연 난입">
