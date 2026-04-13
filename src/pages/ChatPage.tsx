@@ -11,10 +11,8 @@ import ImageCard from "@/components/ImageCard";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
-/** 🌟 렉 방지를 위한 개별 메시지 컴포넌트 최적화 (React.memo) */
 const ChatMessageItem = React.memo(({ msg, charName, charAvatar, renderContent, onContextMenu }: any) => {
   const isUser = msg.role === "user";
-  // 조연 캐릭터 또는 이름이 포함되지 않은 메시지 판별
   const isExtra = msg.role === "assistant" && (msg.content.trim().startsWith("**") || !msg.content.includes(charName));
 
   return (
@@ -244,12 +242,10 @@ const ChatPage = () => {
     }
   }, [input, isLoading, messages, settings, addMessage, updateLastAssistant]);
 
-  /** 🌟 [핵심 수정] 나레이션 버튼 클릭 시 AI 호출 없이 유저 채팅창에 메시지만 등록되도록 변경 */
   const handleNarration = useCallback(() => {
     if (isLoading) return;
     const trimmed = input.trim();
     if (trimmed) {
-      // AI를 호출하는 handleSend 대신, 유저 메시지만 화면에 즉시 등록합니다.
       addMessage({ role: "user", content: `*${trimmed}*` });
       setInput("");
     } else {
@@ -257,17 +253,34 @@ const ChatPage = () => {
     }
   }, [input, isLoading, addMessage]);
 
+  /** 🌟 [핵심 수정] 조연 소환 시 채팅창에 입력된 텍스트를 인식하는 로직 추가 */
   const handleSummonCharacter = useCallback(async () => {
     if (isLoading) return;
-    setIsLoading(true);
-    const toastId = toast.loading("조연이 개입할 타이밍을 엿보는 중...", { id: "summon" });
+    
+    // 현재 채팅 입력창에 적힌 텍스트를 타겟 조연 이름으로 인식합니다.
+    const targetCharacter = input.trim();
+    if (targetCharacter) {
+      setInput(""); // 입력을 확인했으므로 창을 비웁니다.
+    }
 
-    const systemPrompt = `너는 현재 설정된 조연 캐릭터 중 한 명이다. 
+    setIsLoading(true);
+    const toastId = toast.loading(
+      targetCharacter ? `"${targetCharacter}" 등장 준비 중...` : "조연이 개입할 타이밍을 엿보는 중...", 
+      { id: "summon" }
+    );
+
+    let systemPrompt = `너는 현재 설정된 조연 캐릭터 중 한 명이다. 
 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
-현재 대화 맥락을 읽고, 조연 중 한 명이 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라.
-유저("${settings.myName}")나 메인 캐릭터("${settings.charName}")의 행동은 절대 묘사하지 마라.
-출력 형식: **[조연 이름]** "대사 내용"
-만약 설정된 조연이 없다면 맥락에 맞는 엑스트라를 임의로 창작하라.`;
+`;
+
+    // 특정 캐릭터 지정 여부에 따라 시스템 프롬프트를 분기합니다.
+    if (targetCharacter) {
+      systemPrompt += `반드시 "${targetCharacter}"(이)라는 인물이 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라. 만약 설정에 없는 인물이더라도 해당 이름의 엑스트라로 가정하여 말하라.\n`;
+    } else {
+      systemPrompt += `현재 대화 맥락을 읽고, 조연 중 한 명이 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라. 만약 설정된 조연이 없다면 맥락에 맞는 엑스트라를 임의로 창작하라.\n`;
+    }
+
+    systemPrompt += `유저("${settings.myName}")나 메인 캐릭터("${settings.charName}")의 행동은 절대 묘사하지 마라.\n출력 형식: **[${targetCharacter || "조연 이름"}]** "대사 내용"`;
 
     const history = messages.slice(-20).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     const prompt = `${systemPrompt}\n\n[기록]\n${history}\n\n조연의 대사:`;
@@ -294,7 +307,7 @@ const ChatPage = () => {
       toast.dismiss(toastId);
       setIsLoading(false);
     }
-  }, [isLoading, messages, settings, handleSend]);
+  }, [input, isLoading, messages, settings, handleSend]);
 
   const handleGenerateImage = useCallback(async () => {
     if (isLoading || isGeneratingImage) return;
