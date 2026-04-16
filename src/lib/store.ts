@@ -17,6 +17,13 @@ export interface SupportingCharacter {
   avatar: string;
 }
 
+// 🌟 새로 추가될 다중 API 키 구조체
+export interface ExtraApiKey {
+  id: string;
+  name: string; // 예: "Groq", "Cohere" 등 식별용 이름
+  value: string; // 실제 API 키
+}
+
 export interface AppSettings {
   myName: string;
   myIntro: string;
@@ -28,9 +35,10 @@ export interface AppSettings {
   charAvatar: string;
   chatBackground: string;
   supportingCharacters: SupportingCharacter[];
-  geminiApiKey: string;
+  geminiApiKey: string; // 기존 Gemini 전용 키 (유지)
+  extraApiKeys: ExtraApiKey[]; // 🌟 다중 추가 API 키 배열
   historySummary: string;
-  selectedModel: string; // 🌟 새로 추가된 AI 모델 저장용 속성
+  selectedModel: string;
 }
 
 export interface Conversation {
@@ -54,8 +62,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   chatBackground: "",
   supportingCharacters: [],
   geminiApiKey: "",
+  extraApiKeys: [], // 🌟 빈 배열로 초기화
   historySummary: "",
-  selectedModel: "gemini-3.1-flash-lite", // 🌟 기본값을 현재 사용하시는 모델로 설정
+  selectedModel: "gemini-3.1-flash-lite",
 };
 
 function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
@@ -63,9 +72,10 @@ function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppS
   return {
     ...base,
     supportingCharacters: Array.isArray(input?.supportingCharacters) ? input.supportingCharacters : [],
+    extraApiKeys: Array.isArray(input?.extraApiKeys) ? input.extraApiKeys : [], // 🌟 정규화 처리
     geminiApiKey: input?.geminiApiKey || "",
     historySummary: input?.historySummary || "",
-    selectedModel: input?.selectedModel || "gemini-3.1-flash-lite", // 🌟 모델 값 정규화
+    selectedModel: input?.selectedModel || "gemini-3.1-flash-lite",
   };
 }
 
@@ -86,6 +96,8 @@ function saveToStorage(key: string, value: unknown) {
 
 function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
   let supportingCharacters = currentSettings.supportingCharacters;
+  let extraApiKeys = currentSettings.extraApiKeys;
+  
   if (row.supporting_characters) {
     try {
       const parsed = typeof row.supporting_characters === "string" ? JSON.parse(row.supporting_characters) : row.supporting_characters;
@@ -94,6 +106,17 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
       supportingCharacters = currentSettings.supportingCharacters;
     }
   }
+
+  // 🌟 DB에서 추가 API 키 불러오기
+  if (row.extra_api_keys) {
+    try {
+      const parsed = typeof row.extra_api_keys === "string" ? JSON.parse(row.extra_api_keys) : row.extra_api_keys;
+      extraApiKeys = Array.isArray(parsed) ? parsed : currentSettings.extraApiKeys;
+    } catch {
+      extraApiKeys = currentSettings.extraApiKeys;
+    }
+  }
+
   return {
     ...currentSettings,
     myName: row.my_name || "",
@@ -106,8 +129,9 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
     geminiApiKey: row.gemini_api_key || "",
+    extraApiKeys, // 🌟 DB 로드 반영
     historySummary: row.history_summary || "",
-    selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite", // 🌟 DB 로드 시 반영
+    selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite",
     supportingCharacters,
   };
 }
@@ -147,19 +171,23 @@ export function useSettings() {
         char_avatar: normalized.charAvatar,
         chat_background: normalized.chatBackground,
         gemini_api_key: normalized.geminiApiKey,
+        // extra_api_keys: JSON.stringify(normalized.extraApiKeys), // DB 스키마 수정 전까지는 주석 처리 (로컬 스토리지 보존)
         supporting_characters: JSON.stringify(normalized.supportingCharacters),
         history_summary: normalized.historySummary,
-        // selected_model: normalized.selectedModel, // 🌟 DB 에러 방지를 위해 주석 처리 (로컬 스토리지에 정상 저장됨)
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
     }
   }, [user]);
 
   const resetRPContent = useCallback(async () => {
-    // 🌟 초기화 시 모델 설정값 유지
-    const resetData = { ...DEFAULT_SETTINGS, geminiApiKey: settings.geminiApiKey, selectedModel: settings.selectedModel };
+    const resetData = { 
+      ...DEFAULT_SETTINGS, 
+      geminiApiKey: settings.geminiApiKey, 
+      extraApiKeys: settings.extraApiKeys, // 🌟 초기화 시 추가 키도 보호
+      selectedModel: settings.selectedModel 
+    };
     await setSettings(resetData);
-  }, [settings.geminiApiKey, settings.selectedModel, setSettings]);
+  }, [settings.geminiApiKey, settings.extraApiKeys, settings.selectedModel, setSettings]);
 
   return { settings, setSettings, resetRPContent };
 }
@@ -254,12 +282,10 @@ export function useConversations() {
     return convId;
   }, [user]);
 
-  /** 🌟 [핵심 수정] 리액트 상태 대신 로컬 스토리지를 직접 뒤져서 중복을 원천 차단 */
   const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
     if (messages.length === 0) return;
     const autoTitle = `[자동저장] ${settings.charName || "AI 캐릭터"}`;
     
-    // 가장 신선한 데이터(localStorage)에서 기존 자동저장 파일을 찾습니다.
     const freshConvs = JSON.parse(localStorage.getItem("saved-conversations") || "[]") as Conversation[];
     const existing = freshConvs.find(c => c.title === autoTitle);
     

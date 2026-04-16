@@ -8,21 +8,46 @@ export interface StreamChatOptions {
 }
 
 export const streamChat = async (options: StreamChatOptions) => {
-  const { getNextKey, rotateKey } = useApiKeyStore.getState();
-  let apiKey = getNextKey();
-
-  // 🌟 설정 저장소(localStorage)에서 사용자가 선택한 모델 값을 가져옵니다.
+  // 🌟 설정 저장소(localStorage)에서 선택된 모델과 추가된 API 키 목록을 가져옵니다.
   let selectedModel = "gemini-3.1-flash-lite"; // 기본값
+  let extraApiKeys: any[] = [];
+  
   try {
     const storedSettings = localStorage.getItem("app-settings");
     if (storedSettings) {
       const settings = JSON.parse(storedSettings);
-      if (settings.selectedModel) {
-        selectedModel = settings.selectedModel;
-      }
+      if (settings.selectedModel) selectedModel = settings.selectedModel;
+      if (settings.extraApiKeys) extraApiKeys = settings.extraApiKeys;
     }
   } catch (e) {
     console.warn("모델 설정을 불러오는데 실패했습니다.", e);
+  }
+
+  // 🌟 모델 종류 판별
+  const isGemini = selectedModel.includes("gemini");
+  const isGroq = selectedModel.includes("llama");
+  const isCohere = selectedModel.includes("command");
+
+  // 🌟 모델에 맞는 API 키를 동적으로 탐색하여 할당합니다.
+  let currentApiKey = "";
+
+  if (isGemini) {
+    // Gemini는 사용자가 기존에 쓰던 로테이션 스토어(api-key-store)에서 가져옵니다.
+    currentApiKey = useApiKeyStore.getState().getNextKey();
+  } else if (isGroq) {
+    // 설정에 추가된 키 중 이름에 'groq'이나 'llama'가 포함된 키를 찾습니다.
+    const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("groq") || k.name.toLowerCase().includes("llama"));
+    currentApiKey = keyObj?.value || "";
+  } else if (isCohere) {
+    // 설정에 추가된 키 중 이름에 'cohere'이나 'command'가 포함된 키를 찾습니다.
+    const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("cohere") || k.name.toLowerCase().includes("command"));
+    currentApiKey = keyObj?.value || "";
+  }
+
+  // 키를 찾지 못했다면 바로 에러를 띄우고 종료합니다.
+  if (!currentApiKey) {
+    options.onError(`[${selectedModel}] 모델에 대한 API 키를 찾을 수 없습니다. 설정 화면에서 키 이름(Groq, Cohere 등)을 정확히 입력했는지 확인해주세요.`);
+    return;
   }
 
   const makeRequest = async (key: string): Promise<void> => {
@@ -31,10 +56,9 @@ export const streamChat = async (options: StreamChatOptions) => {
     let body: any = {};
 
     // ==========================================
-    // 1. Google Gemini 설정 (사용자님의 기존 세팅 유지)
+    // 1. Google Gemini 통신 세팅
     // ==========================================
-    if (selectedModel.includes("gemini")) {
-      // flash-lite의 경우 API 주소에 preview를 붙여줍니다.
+    if (isGemini) {
       const modelName = selectedModel === "gemini-3.1-flash-lite" ? "gemini-3.1-flash-lite-preview" : selectedModel;
       url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${key}`;
       
@@ -54,12 +78,11 @@ export const streamChat = async (options: StreamChatOptions) => {
       };
     } 
     // ==========================================
-    // 2. Groq (Llama 3.3 70B) 설정
+    // 2. Groq (Llama 3.3 70B) 통신 세팅
     // ==========================================
-    else if (selectedModel.includes("llama")) {
+    else if (isGroq) {
       url = "https://api.groq.com/openai/v1/chat/completions";
       headers["Authorization"] = `Bearer ${key}`;
-      
       body = {
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "user", content: options.message }],
@@ -70,13 +93,12 @@ export const streamChat = async (options: StreamChatOptions) => {
       };
     } 
     // ==========================================
-    // 3. Cohere (Command R) 설정
+    // 3. Cohere (Command R) 통신 세팅
     // ==========================================
-    else if (selectedModel.includes("command")) {
+    else if (isCohere) {
       url = "https://api.cohere.ai/v1/chat";
       headers["Authorization"] = `Bearer ${key}`;
       headers["Accept"] = "application/stream+json";
-      
       body = {
         model: "command-r",
         message: options.message,
@@ -93,9 +115,9 @@ export const streamChat = async (options: StreamChatOptions) => {
         body: JSON.stringify(body),
       });
 
-      // 429 에러(할당량 초과) 발생 시 기존 로테이션 로직 실행
-      if (response.status === 429) {
-        rotateKey();
+      // 🌟 할당량 초과 시 로테이션 로직 (Gemini 모델을 쓸 때만 작동)
+      if (response.status === 429 && isGemini) {
+        useApiKeyStore.getState().rotateKey();
         const nextApiKey = useApiKeyStore.getState().getNextKey();
         if (nextApiKey === key) {
           throw new Error("모든 API 키의 할당량을 소진했습니다.");
@@ -105,7 +127,7 @@ export const streamChat = async (options: StreamChatOptions) => {
 
       if (!response.ok || !response.body) {
         const errorText = await response.text();
-        throw new Error(`API 오류: ${response.status} - ${errorText}`);
+        throw new Error(`API 통신 오류: 상태 코드 ${response.status}\n${errorText}`);
       }
 
       const reader = response.body.getReader();
@@ -118,29 +140,26 @@ export const streamChat = async (options: StreamChatOptions) => {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
-        // 마지막의 불완전한 문자열은 다시 버퍼에 넣습니다.
+        // 마지막의 불완전한 텍스트 덩어리는 다시 버퍼에 넣습니다.
         buffer = lines.pop() || "";
 
         for (const line of lines) {
-          // 빈 줄이나 주석 건너뛰기
           if (!line.trim() || line.startsWith(":")) continue;
 
           try {
             let delta = "";
 
-            // 1. Gemini SSE 파싱
-            if (selectedModel.includes("gemini") && line.startsWith("data: ")) {
+            // 모델별 응답 구조 파싱 (SSE 및 JSON 덩어리 해독)
+            if (isGemini && line.startsWith("data: ")) {
               const json = JSON.parse(line.substring(6));
               delta = json.candidates?.[0]?.content?.parts?.[0]?.text;
-            }
-            // 2. Groq/OpenAI SSE 파싱
-            else if (selectedModel.includes("llama") && line.startsWith("data: ")) {
-              if (line.includes("[DONE]")) break; // 스트림 종료
+            } 
+            else if (isGroq && line.startsWith("data: ")) {
+              if (line.includes("[DONE]")) break; 
               const json = JSON.parse(line.substring(6));
               delta = json.choices?.[0]?.delta?.content;
-            }
-            // 3. Cohere JSON-Line 파싱 (data: 접두사가 없음)
-            else if (selectedModel.includes("command")) {
+            } 
+            else if (isCohere) {
               const json = JSON.parse(line);
               if (json.event_type === "text-generation") {
                 delta = json.text;
@@ -151,7 +170,7 @@ export const streamChat = async (options: StreamChatOptions) => {
               options.onDelta(delta);
             }
           } catch (e) {
-            // 청크가 잘렸거나 JSON 형식이 아닐 경우 다음 라인을 대기합니다.
+            // 통신 중 데이터가 잘려서 오는 경우 에러를 무시하고 다음 덩어리를 기다림
           }
         }
       }
@@ -162,5 +181,5 @@ export const streamChat = async (options: StreamChatOptions) => {
     }
   };
 
-  await makeRequest(apiKey);
+  await makeRequest(currentApiKey);
 };
