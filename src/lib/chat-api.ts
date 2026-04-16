@@ -32,14 +32,11 @@ export const streamChat = async (options: StreamChatOptions) => {
   let currentApiKey = "";
 
   if (isGemini) {
-    // Gemini는 사용자가 기존에 쓰던 로테이션 스토어(api-key-store)에서 가져옵니다.
     currentApiKey = useApiKeyStore.getState().getNextKey();
   } else if (isGroq) {
-    // 설정에 추가된 키 중 이름에 'groq'이나 'llama'가 포함된 키를 찾습니다.
     const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("groq") || k.name.toLowerCase().includes("llama"));
     currentApiKey = keyObj?.value || "";
   } else if (isCohere) {
-    // 설정에 추가된 키 중 이름에 'cohere'이나 'command'가 포함된 키를 찾습니다.
     const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("cohere") || k.name.toLowerCase().includes("command"));
     currentApiKey = keyObj?.value || "";
   }
@@ -65,9 +62,9 @@ export const streamChat = async (options: StreamChatOptions) => {
       body = { 
         contents: [{ parts: [{ text: options.message }] }],
         generationConfig: {
-          temperature: 0.9,      // 창의성 및 장문 서술 강화
+          temperature: 0.9,      
           topP: 0.95,
-          maxOutputTokens: 2048, // 풍부한 대화 분량 확보
+          maxOutputTokens: 2048, 
         },
         safetySettings: [
           { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
@@ -93,14 +90,15 @@ export const streamChat = async (options: StreamChatOptions) => {
       };
     } 
     // ==========================================
-    // 3. Cohere (Command R) 통신 세팅
+    // 3. Cohere (Command R+) 통신 세팅
     // ==========================================
     else if (isCohere) {
       url = "https://api.cohere.ai/v1/chat";
       headers["Authorization"] = `Bearer ${key}`;
       headers["Accept"] = "application/stream+json";
       body = {
-        model: "command-r",
+        // 🌟 Cohere 정책 변경으로 구버전이 삭제되어, 가장 강력한 최신 모델로 변경했습니다.
+        model: "command-r-plus-08-2024",
         message: options.message,
         temperature: 0.9,
         p: 0.95,
@@ -115,7 +113,6 @@ export const streamChat = async (options: StreamChatOptions) => {
         body: JSON.stringify(body),
       });
 
-      // 🌟 할당량 초과 시 로테이션 로직 (Gemini 모델을 쓸 때만 작동)
       if (response.status === 429 && isGemini) {
         useApiKeyStore.getState().rotateKey();
         const nextApiKey = useApiKeyStore.getState().getNextKey();
@@ -140,7 +137,6 @@ export const streamChat = async (options: StreamChatOptions) => {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
-        // 마지막의 불완전한 텍스트 덩어리는 다시 버퍼에 넣습니다.
         buffer = lines.pop() || "";
 
         for (const line of lines) {
@@ -149,7 +145,6 @@ export const streamChat = async (options: StreamChatOptions) => {
           try {
             let delta = "";
 
-            // 모델별 응답 구조 파싱 (SSE 및 JSON 덩어리 해독)
             if (isGemini && line.startsWith("data: ")) {
               const json = JSON.parse(line.substring(6));
               delta = json.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -170,7 +165,6 @@ export const streamChat = async (options: StreamChatOptions) => {
               options.onDelta(delta);
             }
           } catch (e) {
-            // 통신 중 데이터가 잘려서 오는 경우 에러를 무시하고 다음 덩어리를 기다림
           }
         }
       }
