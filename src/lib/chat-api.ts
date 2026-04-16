@@ -90,15 +90,15 @@ export const streamChat = async (options: StreamChatOptions) => {
       };
     } 
     // ==========================================
-    // 3. Cohere (Command R+) 통신 세팅
+    // 3. Cohere (가볍고 빠른 버전) 통신 세팅
     // ==========================================
     else if (isCohere) {
       url = "https://api.cohere.ai/v1/chat";
       headers["Authorization"] = `Bearer ${key}`;
       headers["Accept"] = "application/stream+json";
       body = {
-        // 🌟 Cohere 정책 변경으로 구버전이 삭제되어, 가장 강력한 최신 모델로 변경했습니다.
-        model: "command-r-plus-08-2024",
+        // 🌟 무거운 Plus를 빼고, 가볍고 빠른 최신 기본 모델로 변경했습니다.
+        model: "command-r-08-2024",
         message: options.message,
         temperature: 0.9,
         p: 0.95,
