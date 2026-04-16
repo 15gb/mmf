@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash, Key, Eye, EyeOff, ImageIcon, Eraser } from "lucide-react";
+import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash, Key, Eye, EyeOff, ImageIcon, Eraser, Bot } from "lucide-react";
 import { useSettings, useConversations, useMessages, type AppSettings, type SupportingCharacter } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 import { generateUUID } from "@/lib/utils";
@@ -145,7 +145,7 @@ const SettingsPage = () => {
   };
 
   const handleFullReset = async () => {
-    if (window.confirm("중요 정보(로그인, API키)를 제외한 모든 프로필, 세계관, 이미지, 노트를 초기화하시겠습니까?")) {
+    if (window.confirm("중요 정보(로그인, API키, 모델)를 제외한 모든 프로필, 세계관, 이미지, 노트를 초기화하시겠습니까?")) {
       await resetRPContent();
       clearMessages();
       toast.success("컨텐츠 초기화가 완료되었습니다.");
@@ -271,8 +271,8 @@ const SettingsPage = () => {
           />
         </Section>
 
-        {/* 6. 세계관 및 노트 섹션 */}
-        <Section title="세계관 및 노트">
+        {/* 6. 세계관 및 모델/API 설정 섹션 */}
+        <Section title="세계관 및 AI 설정">
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">세계관 자동 생성</label>
             <div className="flex gap-2">
@@ -285,13 +285,39 @@ const SettingsPage = () => {
           <Field label="상세 세계관" value={form.worldSetting} onChange={(v) => update("worldSetting", v)} multiline placeholder="시대상, 배경 설명" />
           <Field label="노트 (장기 기억)" value={form.note} onChange={(v) => update("note", v)} multiline placeholder="AI가 기억해야 할 특별한 사건이나 정보" />
 
-          {/* API 키 설정 */}
-          <div className="mt-6 pt-5 border-t border-border/50 space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-2">
-              <Key size={16} className="text-primary" /> Gemini API Key
-            </label>
-            <input type="password" value={form.geminiApiKey || ""} onChange={(e) => update("geminiApiKey", e.target.value)} placeholder="AIzaSy..." className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-            <p className="text-[10px] text-muted-foreground italic px-1">* 쉼표(,)로 구분하여 최대 3개까지 로테이션 가능합니다.</p>
+          {/* 🌟 AI 모델 및 API 키 설정 (새로 추가/수정됨) */}
+          <div className="mt-6 pt-5 border-t border-border/50 space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground flex items-center gap-2">
+                <Bot size={16} className="text-primary" /> 사용할 AI 모델
+              </label>
+              <select
+                value={form.selectedModel || "gemini-3.1-flash-lite"}
+                onChange={(e) => update("selectedModel", e.target.value)}
+                className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring border border-border"
+              >
+                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Google)</option>
+                <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
+                <option value="command-r">Command R (Cohere)</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground flex items-center gap-2">
+                <Key size={16} className="text-primary" /> API Key
+              </label>
+              <input 
+                type="password" 
+                value={form.geminiApiKey || ""} 
+                onChange={(e) => update("geminiApiKey", e.target.value)} 
+                placeholder="선택한 모델의 API Key 입력..." 
+                className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
+              />
+              <p className="text-[10px] text-muted-foreground italic px-1">
+                * 위에서 선택한 모델(Google, Groq, Cohere)에 알맞은 키를 넣어주세요.<br/>
+                * Gemini의 경우 쉼표(,)로 구분해 다중 등록이 가능합니다.
+              </p>
+            </div>
           </div>
         </Section>
 

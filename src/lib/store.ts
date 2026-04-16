@@ -30,6 +30,7 @@ export interface AppSettings {
   supportingCharacters: SupportingCharacter[];
   geminiApiKey: string;
   historySummary: string;
+  selectedModel: string; // 🌟 새로 추가된 AI 모델 저장용 속성
 }
 
 export interface Conversation {
@@ -54,6 +55,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   supportingCharacters: [],
   geminiApiKey: "",
   historySummary: "",
+  selectedModel: "gemini-3.1-flash-lite", // 🌟 기본값을 현재 사용하시는 모델로 설정
 };
 
 function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
@@ -63,6 +65,7 @@ function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppS
     supportingCharacters: Array.isArray(input?.supportingCharacters) ? input.supportingCharacters : [],
     geminiApiKey: input?.geminiApiKey || "",
     historySummary: input?.historySummary || "",
+    selectedModel: input?.selectedModel || "gemini-3.1-flash-lite", // 🌟 모델 값 정규화
   };
 }
 
@@ -104,6 +107,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     chatBackground: row.chat_background || "",
     geminiApiKey: row.gemini_api_key || "",
     historySummary: row.history_summary || "",
+    selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite", // 🌟 DB 로드 시 반영
     supportingCharacters,
   };
 }
@@ -145,15 +149,17 @@ export function useSettings() {
         gemini_api_key: normalized.geminiApiKey,
         supporting_characters: JSON.stringify(normalized.supportingCharacters),
         history_summary: normalized.historySummary,
+        // selected_model: normalized.selectedModel, // 🌟 DB 에러 방지를 위해 주석 처리 (로컬 스토리지에 정상 저장됨)
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
     }
   }, [user]);
 
   const resetRPContent = useCallback(async () => {
-    const resetData = { ...DEFAULT_SETTINGS, geminiApiKey: settings.geminiApiKey };
+    // 🌟 초기화 시 모델 설정값 유지
+    const resetData = { ...DEFAULT_SETTINGS, geminiApiKey: settings.geminiApiKey, selectedModel: settings.selectedModel };
     await setSettings(resetData);
-  }, [settings.geminiApiKey, setSettings]);
+  }, [settings.geminiApiKey, settings.selectedModel, setSettings]);
 
   return { settings, setSettings, resetRPContent };
 }
