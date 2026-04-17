@@ -57,7 +57,6 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 최신 상태 참조용 Ref
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
   const autoSaveRef = useRef(autoSaveConversation);
@@ -105,17 +104,28 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
+  // 🌟 모바일에서도 완벽하게 작동하는 자동 저장 이벤트 리스너 추가
   useEffect(() => {
-    const handleExitSave = () => {
+    const handleAutoSave = () => {
       if (messagesRef.current.length > 0) {
         autoSaveRef.current(messagesRef.current, settingsRef.current);
       }
     };
-    window.addEventListener("beforeunload", handleExitSave);
+
+    const handleVisibilityChange = () => {
+      // 폰 화면이 꺼지거나 앱을 내렸을 때 발동
+      if (document.visibilityState === "hidden") {
+        handleAutoSave();
+      }
+    };
+
+    window.addEventListener("beforeunload", handleAutoSave);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     
     return () => {
-      window.removeEventListener("beforeunload", handleExitSave);
-      handleExitSave(); // 컴포넌트가 꺼질 때 1회 실행
+      window.removeEventListener("beforeunload", handleAutoSave);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      handleAutoSave(); 
     };
   }, []);
 
@@ -253,15 +263,10 @@ const ChatPage = () => {
     }
   }, [input, isLoading, addMessage]);
 
-  /** 🌟 [핵심 수정] 조연 소환 시 채팅창에 입력된 텍스트를 인식하는 로직 추가 */
   const handleSummonCharacter = useCallback(async () => {
     if (isLoading) return;
-    
-    // 현재 채팅 입력창에 적힌 텍스트를 타겟 조연 이름으로 인식합니다.
     const targetCharacter = input.trim();
-    if (targetCharacter) {
-      setInput(""); // 입력을 확인했으므로 창을 비웁니다.
-    }
+    if (targetCharacter) setInput(""); 
 
     setIsLoading(true);
     const toastId = toast.loading(
@@ -273,7 +278,6 @@ const ChatPage = () => {
 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
 `;
 
-    // 특정 캐릭터 지정 여부에 따라 시스템 프롬프트를 분기합니다.
     if (targetCharacter) {
       systemPrompt += `반드시 "${targetCharacter}"(이)라는 인물이 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라. 만약 설정에 없는 인물이더라도 해당 이름의 엑스트라로 가정하여 말하라.\n`;
     } else {
@@ -376,9 +380,21 @@ const ChatPage = () => {
           <button onClick={() => navigate("/conversations")} title="목록" className="p-2 hover:text-foreground transition-colors">
             <List size={18} />
           </button>
-          <button onClick={() => { if(window.confirm("대화를 모두 지울까요?")) clearMessages(); }} title="초기화" className="p-2 hover:text-destructive transition-colors">
+          
+          {/* 🌟 덮어쓰기 버그 원인 해결: 휴지통 클릭 시 기존 연결된 ID(투명 꼬리표)도 같이 파괴합니다! */}
+          <button 
+            onClick={() => { 
+              if(window.confirm("대화를 모두 지울까요?")) {
+                clearMessages(); 
+                setCurrentConvId(null); 
+              }
+            }} 
+            title="초기화" 
+            className="p-2 hover:text-destructive transition-colors"
+          >
             <Trash2 size={18} />
           </button>
+          
           <button onClick={() => navigate("/settings")} title="설정" className="p-2 hover:text-foreground transition-colors">
             <Settings size={18} />
           </button>

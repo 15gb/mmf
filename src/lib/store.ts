@@ -85,21 +85,19 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   } catch { return fallback; }
 }
 
-/** 🌟 철벽 방어: 용량 초과 시 불필요한 캐시를 지우고 기필코 '재시도' 합니다. */
+/** 🌟 모바일 불굴의 저장 로직: 용량이 꽉 차면 데이터를 반토막 내서라도 무조건 저장시킵니다 */
 function saveToStorage(key: string, value: unknown) {
   try { 
     localStorage.setItem(key, JSON.stringify(value)); 
   } catch (e) { 
     if (e instanceof DOMException && e.name === "QuotaExceededError") {
-      console.warn("로컬 스토리지 한도 초과! 임시 캐시를 비우고 저장을 재시도합니다.");
-      // 용량 확보를 위해 단순 채팅 캐시를 날림
-      localStorage.removeItem("chat-messages");
-      
-      try {
-        // 캐시를 비운 뒤 악착같이 다시 저장 시도
-        localStorage.setItem(key, JSON.stringify(value)); 
-      } catch (retryError) {
-        console.error("재시도 실패: 저장 공간이 완전히 가득 찼습니다.");
+      console.warn(`[${key}] 용량 초과! 캐시를 줄여서 다시 시도합니다.`);
+      if (Array.isArray(value) && value.length > 1) {
+        // 배열(대화 목록)인 경우, 절반으로 싹둑 잘라서 재시도 (재귀 호출)
+        const reduced = value.slice(0, Math.floor(value.length / 2));
+        saveToStorage(key, reduced);
+      } else {
+        localStorage.removeItem("chat-messages");
       }
     }
   }
@@ -246,8 +244,6 @@ export function useConversations() {
           id: row.id, title: row.title, messages: row.messages || [], settings: row.settings,
           createdAt: new Date(row.created_at).getTime(), updatedAt: new Date(row.updated_at).getTime(),
         }));
-        
-        // 🌟 철벽 방어: DB가 비어있다고 무작정 로컬을 덮어쓰지 않고 최신순으로 병합(Merge)합니다.
         setConversationsState(prev => {
           const merged = [...prev];
           remoteConvs.forEach(remote => {
@@ -258,7 +254,7 @@ export function useConversations() {
               merged.push(remote);
             }
           });
-          const final = merged.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
+          const final = merged.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 50);
           saveToStorage("saved-conversations", final);
           return final;
         });
@@ -272,15 +268,13 @@ export function useConversations() {
     const convId = options.existingId || generateUUID();
     const newConv: Conversation = { id: convId, title: options.title || "새 대화", messages, settings: options.settings, createdAt: now, updatedAt: now };
 
-    // 🌟 1차 저장: 안정적인 로컬에 먼저 저장
     setConversationsState(prev => {
       const filtered = prev.filter(c => c.id !== convId);
-      const updated = [newConv, ...filtered].slice(0, 100); 
+      const updated = [newConv, ...filtered].slice(0, 50); 
       saveToStorage("saved-conversations", updated);
       return updated;
     });
 
-    // 🌟 2차 저장: 백업용 구글 DB에 저장
     if (user) {
       const { error } = await supabase.from("conversations").upsert({
         id: convId, 
@@ -299,11 +293,8 @@ export function useConversations() {
   const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
     if (messages.length === 0) return;
     const autoTitle = `[자동저장] ${settings.charName || "AI 캐릭터"}`;
-    
-    // 🌟 철벽 방어: 자동 저장 중복을 막기 위해 브라우저 창(로컬)에서 직접 찾습니다.
     const freshConvs = JSON.parse(localStorage.getItem("saved-conversations") || "[]") as Conversation[];
     const existing = freshConvs.find(c => c.title === autoTitle);
-    
     await saveConversation(messages, { existingId: existing?.id, title: autoTitle, settings });
   }, [saveConversation]);
 
