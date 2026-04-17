@@ -66,7 +66,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   selectedModel: "gemini-3.1-flash-lite",
 };
 
-// 🌟 데이터 로드 상태를 추적하여 불필요한 덮어쓰기(초기화 버그) 방지
+// 🌟 전역 플래그: 데이터가 로드된 후 덮어쓰는 사고 방지
 let loadedSettingsUserId: string | null = null;
 let isConversationsLoaded = false;
 
@@ -94,7 +94,6 @@ function saveToStorage(key: string, value: unknown) {
     localStorage.setItem(key, JSON.stringify(value)); 
   } catch (e) { 
     if (e instanceof DOMException && e.name === "QuotaExceededError") {
-      console.warn(`[${key}] 용량 초과! 캐시를 줄여서 다시 시도합니다.`);
       if (Array.isArray(value) && value.length > 1) {
         const reduced = value.slice(0, Math.floor(value.length / 2));
         saveToStorage(key, reduced);
@@ -135,7 +134,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
     geminiApiKey: row.gemini_api_key || "",
-    extraApiKeys, 
+    extraApiKeys,
     historySummary: row.history_summary || "",
     selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite",
     supportingCharacters,
