@@ -66,7 +66,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   selectedModel: "gemini-3.1-flash-lite",
 };
 
-// 🌟 전역 플래그: 데이터가 로드된 후 덮어쓰는 사고 방지
 let loadedSettingsUserId: string | null = null;
 let isConversationsLoaded = false;
 
@@ -238,6 +237,7 @@ export function useMessages() {
   return { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages, setMessagesState };
 }
 
+// 🌟 여기서부터가 데이터 증발을 막고 PC/모바일 동기화를 완성하는 핵심 수정 부분입니다.
 export function useConversations() {
   const { user } = useAuth();
   const [conversations, setConversationsState] = useState<Conversation[]>(() => loadFromStorage("saved-conversations", []));
@@ -252,15 +252,46 @@ export function useConversations() {
     if (isConversationsLoaded) return;
 
     (async () => {
-      const { data } = await supabase.from("conversations").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
+      const { data, error } = await supabase.from("conversations").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
+      
+      if (error) console.error("데이터 로드 에러:", error);
+
       if (data) {
         const remoteConvs = data.map((row: any) => ({
           id: row.id, title: row.title, messages: row.messages || [], settings: row.settings,
           createdAt: new Date(row.created_at).getTime(), updatedAt: new Date(row.updated_at).getTime(),
         }));
         
-        setConversationsState(remoteConvs);
-        saveToStorage("saved-conversations", remoteConvs);
+        setConversationsState(prev => {
+          const merged = [...prev];
+          
+          // 1. 클라우드 데이터를 로컬에 합침 (최신 버전 덮어쓰기)
+          remoteConvs.forEach(remote => {
+            const index = merged.findIndex(l => l.id === remote.id);
+            if (index > -1) { 
+              if (remote.updatedAt > merged[index].updatedAt) merged[index] = remote; 
+            } else {
+              merged.push(remote);
+            }
+          });
+
+          // 2. 로컬에만 있는 데이터(동기화가 안 됐던 파일들)를 찾아서 클라우드로 강제 전송!
+          const localOnly = merged.filter(m => !remoteConvs.find(r => r.id === m.id));
+          localOnly.forEach(async (localConv) => {
+            await supabase.from("conversations").upsert({
+              id: localConv.id, 
+              user_id: user.id, 
+              title: localConv.title, 
+              messages: localConv.messages as any,
+              settings: localConv.settings as any, 
+              updated_at: new Date(localConv.updatedAt).toISOString()
+            }, { onConflict: "id" });
+          });
+
+          const final = merged.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 50);
+          saveToStorage("saved-conversations", final);
+          return final;
+        });
       }
       isConversationsLoaded = true;
     })();
