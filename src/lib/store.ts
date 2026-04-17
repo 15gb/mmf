@@ -66,6 +66,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   selectedModel: "gemini-3.1-flash-lite",
 };
 
+// 🌟 페이지 이동 시 설정이 초기화되는 버그를 막기 위한 전역 변수
+// 어떤 유저의 데이터가 로드되었는지 기억하여 불필요한 덮어쓰기를 방지합니다.
+let loadedUserId: string | null = null;
+
 function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
   const base = { ...DEFAULT_SETTINGS, ...(input || {}) } as AppSettings;
   return {
@@ -133,7 +137,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
     geminiApiKey: row.gemini_api_key || "",
-    extraApiKeys,
+    extraApiKeys, // 🌟 파싱된 커스텀 API 키 적용
     historySummary: row.history_summary || "",
     selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite",
     supportingCharacters,
@@ -147,13 +151,18 @@ export function useSettings() {
   );
 
   useEffect(() => {
-    if (!user) return;
+    // 🌟 이미 현재 로그인한 유저의 세팅을 불러왔다면, 페이지를 이동해도 다시 덮어쓰지 않음
+    if (!user || loadedUserId === user.id) return;
+    
     (async () => {
       const { data } = await supabase.from("user_settings").select("*").eq("user_id", user.id).maybeSingle();
       if (data) {
-        const s = rowToSettings(data, settings);
-        setSettingsState(s);
-        saveToStorage("app-settings", s);
+        setSettingsState(prev => {
+          const s = rowToSettings(data, prev);
+          saveToStorage("app-settings", s);
+          return s;
+        });
+        loadedUserId = user.id; // 🌟 로드 완료 기록
       }
     })();
   }, [user]);
@@ -175,6 +184,9 @@ export function useSettings() {
         char_avatar: normalized.charAvatar,
         chat_background: normalized.chatBackground,
         gemini_api_key: normalized.geminiApiKey,
+        // 🌟 누락되었던 커스텀 API 키와 모델 저장 로직 추가
+        extra_api_keys: JSON.stringify(normalized.extraApiKeys),
+        selected_model: normalized.selectedModel,
         supporting_characters: JSON.stringify(normalized.supportingCharacters),
         history_summary: normalized.historySummary,
         updated_at: new Date().toISOString(),
