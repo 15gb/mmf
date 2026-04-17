@@ -66,8 +66,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   selectedModel: "gemini-3.1-flash-lite",
 };
 
+// 🌟 설정 파일이 덮어써지는 것을 막기 위한 전역 플래그
 let loadedSettingsUserId: string | null = null;
-let isConversationsLoaded = false;
 
 function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
   const base = { ...DEFAULT_SETTINGS, ...(input || {}) } as AppSettings;
@@ -237,26 +237,28 @@ export function useMessages() {
   return { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages, setMessagesState };
 }
 
-// 🌟 여기서부터가 데이터 증발을 막고 PC/모바일 동기화를 완성하는 핵심 수정 부분입니다.
+// 🌟 PC-모바일 완벽 동기화: 클라우드 데이터를 안전하게 병합하는 로직
 export function useConversations() {
   const { user } = useAuth();
   const [conversations, setConversationsState] = useState<Conversation[]>(() => loadFromStorage("saved-conversations", []));
   const [showAutoSaves, setShowAutoSavesState] = useState(() => loadFromStorage("show-auto-saves", true));
+  
+  // 클라우드와 동기화 중인지 확인하는 내부 상태 (중복 덮어쓰기 방지용)
+  const [isSyncing, setIsSyncing] = useState(true); 
 
   useEffect(() => {
     if (!user) {
-      isConversationsLoaded = false;
+      setIsSyncing(false);
       return;
     }
-    
-    if (isConversationsLoaded) return;
 
     (async () => {
+      setIsSyncing(true); // 동기화 시작
       const { data, error } = await supabase.from("conversations").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
       
-      if (error) console.error("데이터 로드 에러:", error);
-
-      if (data) {
+      if (error) {
+        console.error("클라우드 데이터 로드 에러:", error);
+      } else if (data) {
         const remoteConvs = data.map((row: any) => ({
           id: row.id, title: row.title, messages: row.messages || [], settings: row.settings,
           createdAt: new Date(row.created_at).getTime(), updatedAt: new Date(row.updated_at).getTime(),
@@ -265,7 +267,7 @@ export function useConversations() {
         setConversationsState(prev => {
           const merged = [...prev];
           
-          // 1. 클라우드 데이터를 로컬에 합침 (최신 버전 덮어쓰기)
+          // 1. 클라우드 최신 데이터를 로컬에 덮어쓰기
           remoteConvs.forEach(remote => {
             const index = merged.findIndex(l => l.id === remote.id);
             if (index > -1) { 
@@ -275,7 +277,7 @@ export function useConversations() {
             }
           });
 
-          // 2. 로컬에만 있는 데이터(동기화가 안 됐던 파일들)를 찾아서 클라우드로 강제 전송!
+          // 2. 로컬에만 있고 클라우드에 없는 데이터가 있다면 서버로 밀어올리기
           const localOnly = merged.filter(m => !remoteConvs.find(r => r.id === m.id));
           localOnly.forEach(async (localConv) => {
             await supabase.from("conversations").upsert({
@@ -293,7 +295,7 @@ export function useConversations() {
           return final;
         });
       }
-      isConversationsLoaded = true;
+      setIsSyncing(false); // 동기화 완료! 이제 안심하고 저장 가능
     })();
   }, [user]);
 
@@ -310,7 +312,8 @@ export function useConversations() {
       return updated;
     });
 
-    if (user && isConversationsLoaded) {
+    // 🌟 동기화가 완전히 끝난 상태에서만 클라우드에 업로드 (데이터 증발 차단)
+    if (user && !isSyncing) {
       const { error } = await supabase.from("conversations").upsert({
         id: convId, 
         user_id: user.id, 
@@ -323,15 +326,16 @@ export function useConversations() {
     }
 
     return convId;
-  }, [user]);
+  }, [user, isSyncing]);
 
   const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
-    if (messages.length === 0 || !isConversationsLoaded) return;
+    // 🌟 동기화 중일 때는 자동저장을 막아서 클라우드 데이터 증발 방지
+    if (messages.length === 0 || isSyncing) return; 
     const autoTitle = `[자동저장] ${settings.charName || "AI 캐릭터"}`;
     const freshConvs = JSON.parse(localStorage.getItem("saved-conversations") || "[]") as Conversation[];
     const existing = freshConvs.find(c => c.title === autoTitle);
     await saveConversation(messages, { existingId: existing?.id, title: autoTitle, settings });
-  }, [saveConversation]);
+  }, [saveConversation, isSyncing]);
 
   const deleteConversation = useCallback(async (id: string) => {
     setConversationsState(prev => {
