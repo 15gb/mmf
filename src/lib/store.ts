@@ -66,9 +66,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   selectedModel: "gemini-3.1-flash-lite",
 };
 
-// 🌟 페이지 이동 시 설정이 초기화되는 버그를 막기 위한 전역 변수
-// 어떤 유저의 데이터가 로드되었는지 기억하여 불필요한 덮어쓰기를 방지합니다.
-let loadedUserId: string | null = null;
+// 🌟 데이터 로드 상태를 추적하여 불필요한 덮어쓰기(초기화 버그) 방지
+let loadedSettingsUserId: string | null = null;
+let isConversationsLoaded = false;
 
 function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
   const base = { ...DEFAULT_SETTINGS, ...(input || {}) } as AppSettings;
@@ -89,7 +89,6 @@ function loadFromStorage<T>(key: string, fallback: T): T {
   } catch { return fallback; }
 }
 
-/** 🌟 모바일 불굴의 저장 로직: 용량이 꽉 차면 데이터를 반토막 내서라도 무조건 저장시킵니다 */
 function saveToStorage(key: string, value: unknown) {
   try { 
     localStorage.setItem(key, JSON.stringify(value)); 
@@ -97,7 +96,6 @@ function saveToStorage(key: string, value: unknown) {
     if (e instanceof DOMException && e.name === "QuotaExceededError") {
       console.warn(`[${key}] 용량 초과! 캐시를 줄여서 다시 시도합니다.`);
       if (Array.isArray(value) && value.length > 1) {
-        // 배열(대화 목록)인 경우, 절반으로 싹둑 잘라서 재시도 (재귀 호출)
         const reduced = value.slice(0, Math.floor(value.length / 2));
         saveToStorage(key, reduced);
       } else {
@@ -137,7 +135,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     charAvatar: row.char_avatar || "",
     chatBackground: row.chat_background || "",
     geminiApiKey: row.gemini_api_key || "",
-    extraApiKeys, // 🌟 파싱된 커스텀 API 키 적용
+    extraApiKeys, 
     historySummary: row.history_summary || "",
     selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite",
     supportingCharacters,
@@ -151,8 +149,7 @@ export function useSettings() {
   );
 
   useEffect(() => {
-    // 🌟 이미 현재 로그인한 유저의 세팅을 불러왔다면, 페이지를 이동해도 다시 덮어쓰지 않음
-    if (!user || loadedUserId === user.id) return;
+    if (!user || loadedSettingsUserId === user.id) return;
     
     (async () => {
       const { data } = await supabase.from("user_settings").select("*").eq("user_id", user.id).maybeSingle();
@@ -162,7 +159,7 @@ export function useSettings() {
           saveToStorage("app-settings", s);
           return s;
         });
-        loadedUserId = user.id; // 🌟 로드 완료 기록
+        loadedSettingsUserId = user.id; 
       }
     })();
   }, [user]);
@@ -171,6 +168,7 @@ export function useSettings() {
     const normalized = normalizeSettings(updated);
     setSettingsState(normalized);
     saveToStorage("app-settings", normalized);
+    
     if (user) {
       await supabase.from("user_settings").upsert({
         user_id: user.id,
@@ -184,7 +182,6 @@ export function useSettings() {
         char_avatar: normalized.charAvatar,
         chat_background: normalized.chatBackground,
         gemini_api_key: normalized.geminiApiKey,
-        // 🌟 누락되었던 커스텀 API 키와 모델 저장 로직 추가
         extra_api_keys: JSON.stringify(normalized.extraApiKeys),
         selected_model: normalized.selectedModel,
         supporting_characters: JSON.stringify(normalized.supportingCharacters),
@@ -248,7 +245,13 @@ export function useConversations() {
   const [showAutoSaves, setShowAutoSavesState] = useState(() => loadFromStorage("show-auto-saves", true));
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      isConversationsLoaded = false;
+      return;
+    }
+    
+    if (isConversationsLoaded) return;
+
     (async () => {
       const { data } = await supabase.from("conversations").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
       if (data) {
@@ -256,21 +259,11 @@ export function useConversations() {
           id: row.id, title: row.title, messages: row.messages || [], settings: row.settings,
           createdAt: new Date(row.created_at).getTime(), updatedAt: new Date(row.updated_at).getTime(),
         }));
-        setConversationsState(prev => {
-          const merged = [...prev];
-          remoteConvs.forEach(remote => {
-            const index = merged.findIndex(l => l.id === remote.id);
-            if (index > -1) { 
-              if (remote.updatedAt > merged[index].updatedAt) merged[index] = remote; 
-            } else {
-              merged.push(remote);
-            }
-          });
-          const final = merged.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 50);
-          saveToStorage("saved-conversations", final);
-          return final;
-        });
+        
+        setConversationsState(remoteConvs);
+        saveToStorage("saved-conversations", remoteConvs);
       }
+      isConversationsLoaded = true;
     })();
   }, [user]);
 
@@ -287,7 +280,7 @@ export function useConversations() {
       return updated;
     });
 
-    if (user) {
+    if (user && isConversationsLoaded) {
       const { error } = await supabase.from("conversations").upsert({
         id: convId, 
         user_id: user.id, 
@@ -303,7 +296,7 @@ export function useConversations() {
   }, [user]);
 
   const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
-    if (messages.length === 0) return;
+    if (messages.length === 0 || !isConversationsLoaded) return;
     const autoTitle = `[자동저장] ${settings.charName || "AI 캐릭터"}`;
     const freshConvs = JSON.parse(localStorage.getItem("saved-conversations") || "[]") as Conversation[];
     const existing = freshConvs.find(c => c.title === autoTitle);

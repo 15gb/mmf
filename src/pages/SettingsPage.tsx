@@ -81,7 +81,6 @@ const SettingsPage = () => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  /** 🌟 [조연 캐릭터 관리 로직] */
   const handleAddCharacter = () => {
     const newChar: SupportingCharacter = { id: generateUUID(), name: "", persona: "", avatar: "" };
     update("supportingCharacters", [...form.supportingCharacters, newChar]);
@@ -104,9 +103,7 @@ const SettingsPage = () => {
     }));
   };
 
-  /** 🌟 [다중 API 키 관리 로직] */
   const handleAddApiKey = () => {
-    // 추가할 때 기본값을 'Groq'으로 설정하여 드롭다운이 꼬이지 않게 합니다.
     const newKey: ExtraApiKey = { id: generateUUID(), name: "Groq", value: "" };
     update("extraApiKeys", [...form.extraApiKeys, newKey]);
   };
@@ -153,7 +150,6 @@ const SettingsPage = () => {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
-      {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-10">
         <button onClick={() => navigate("/")} className="p-2 -ml-2 rounded-lg text-foreground active:opacity-50">
           <ArrowLeft size={20} />
@@ -164,7 +160,6 @@ const SettingsPage = () => {
         </button>
       </header>
 
-      {/* Form Body */}
       <div className="flex-1 overflow-y-auto px-4 py-5 space-y-6">
         <Section title="계정">
           {user ? (
@@ -237,7 +232,6 @@ const SettingsPage = () => {
           <Field label="상세 세계관" value={form.worldSetting} onChange={(v) => update("worldSetting", v)} multiline placeholder="시대상, 배경 설명" />
           <Field label="노트 (장기 기억)" value={form.note} onChange={(v) => update("note", v)} multiline placeholder="AI가 기억해야 할 특별한 사건이나 정보" />
 
-          {/* 🌟 AI 모델 및 다중 API 키 설정 영역 */}
           <div className="mt-6 pt-5 border-t border-border/50 space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground flex items-center gap-2">
@@ -254,7 +248,6 @@ const SettingsPage = () => {
               </select>
             </div>
 
-            {/* 기본 Gemini 키 */}
             <div className="space-y-2 pb-2">
               <label className="text-sm font-medium text-foreground flex items-center gap-2">
                 <Key size={16} className="text-primary" /> 기본 Gemini API Key
@@ -268,7 +261,6 @@ const SettingsPage = () => {
               />
             </div>
 
-            {/* 🌟 드롭다운 방식이 적용된 추가 API 키 리스트 */}
             <div className="space-y-3 pt-3 border-t border-border/30">
               <label className="text-sm font-medium text-foreground flex items-center gap-2">
                 <Key size={16} className="text-muted-foreground" /> 외부 모델 API 키 추가
@@ -277,7 +269,6 @@ const SettingsPage = () => {
               {form.extraApiKeys.map((apiKeyObj) => (
                 <div key={apiKeyObj.id} className="flex gap-2 items-center p-3 rounded-xl bg-muted/30 border border-border">
                   <div className="flex-1 space-y-2">
-                    {/* 🌟 텍스트 입력창 대신 select 드롭다운으로 변경 */}
                     <select
                       value={apiKeyObj.name}
                       onChange={(e) => handleUpdateApiKey(apiKeyObj.id, "name", e.target.value)}
