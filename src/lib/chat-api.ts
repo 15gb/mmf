@@ -2,31 +2,35 @@ import { useApiKeyStore } from './api-key-store';
 
 export interface StreamChatOptions {
   message: string;
+  settings?: any; // 🌟 ChatPage에서 넘겨준 설정을 직접 받을 수 있도록 추가
   onDelta: (delta: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
 }
 
 export const streamChat = async (options: StreamChatOptions) => {
-  // 🌟 설정 저장소(localStorage)에서 선택된 모델과 추가된 API 키 목록을 가져옵니다.
-  let selectedModel = "gemini-3.1-flash-lite"; // 기본값
-  let extraApiKeys: any[] = [];
+  // 🌟 전달받은 설정이 있으면 우선 사용하고, 없으면 로컬 스토리지에서 가져옵니다.
+  let selectedModel = options.settings?.selectedModel || "gemini-3.1-flash-lite";
+  let extraApiKeys: any[] = options.settings?.extraApiKeys || [];
   
-  try {
-    const storedSettings = localStorage.getItem("app-settings");
-    if (storedSettings) {
-      const settings = JSON.parse(storedSettings);
-      if (settings.selectedModel) selectedModel = settings.selectedModel;
-      if (settings.extraApiKeys) extraApiKeys = settings.extraApiKeys;
+  if (!options.settings) {
+    try {
+      const storedSettings = localStorage.getItem("app-settings");
+      if (storedSettings) {
+        const settings = JSON.parse(storedSettings);
+        if (settings.selectedModel) selectedModel = settings.selectedModel;
+        if (settings.extraApiKeys) extraApiKeys = settings.extraApiKeys;
+      }
+    } catch (e) {
+      console.warn("모델 설정을 불러오는데 실패했습니다.", e);
     }
-  } catch (e) {
-    console.warn("모델 설정을 불러오는데 실패했습니다.", e);
   }
 
-  // 🌟 모델 종류 판별
+  // 🌟 모델 종류 판별 (GPT 판별 추가!)
   const isGemini = selectedModel.includes("gemini");
   const isGroq = selectedModel.includes("llama");
   const isCohere = selectedModel.includes("command");
+  const isGitHub = selectedModel.includes("gpt"); // 🌟 GPT 모델 감지 추가
 
   // 🌟 모델에 맞는 API 키를 동적으로 탐색하여 할당합니다.
   let currentApiKey = "";
@@ -39,11 +43,15 @@ export const streamChat = async (options: StreamChatOptions) => {
   } else if (isCohere) {
     const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("cohere") || k.name.toLowerCase().includes("command"));
     currentApiKey = keyObj?.value || "";
+  } else if (isGitHub) {
+    // 🌟 깃허브(GPT)용 키 찾기
+    const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("github") || k.name.toLowerCase().includes("gpt"));
+    currentApiKey = keyObj?.value || "";
   }
 
   // 키를 찾지 못했다면 바로 에러를 띄우고 종료합니다.
   if (!currentApiKey) {
-    options.onError(`[${selectedModel}] 모델에 대한 API 키를 찾을 수 없습니다. 설정 화면에서 키 이름(Groq, Cohere 등)을 정확히 입력했는지 확인해주세요.`);
+    options.onError(`[${selectedModel}] 모델에 대한 API 키를 찾을 수 없습니다. 설정 화면에서 키 이름(Groq, Cohere, GitHub 등)을 정확히 입력했는지 확인해주세요.`);
     return;
   }
 
@@ -90,19 +98,33 @@ export const streamChat = async (options: StreamChatOptions) => {
       };
     } 
     // ==========================================
-    // 3. Cohere (가볍고 빠른 버전) 통신 세팅
+    // 3. Cohere 통신 세팅
     // ==========================================
     else if (isCohere) {
       url = "https://api.cohere.ai/v1/chat";
       headers["Authorization"] = `Bearer ${key}`;
       headers["Accept"] = "application/stream+json";
       body = {
-        // 🌟 무거운 Plus를 빼고, 가볍고 빠른 최신 기본 모델로 변경했습니다.
         model: "command-r-08-2024",
         message: options.message,
         temperature: 0.9,
         p: 0.95,
         stream: true,
+      };
+    }
+    // ==========================================
+    // 4. 🌟 GitHub Models (GPT-5 등) 통신 세팅 추가
+    // ==========================================
+    else if (isGitHub) {
+      url = "https://models.inference.ai.azure.com/chat/completions";
+      headers["Authorization"] = `Bearer ${key}`;
+      body = {
+        model: selectedModel, // "gpt-5" 혹은 "gpt-4o-mini" 동적 할당
+        messages: [{ role: "user", content: options.message }],
+        temperature: 0.9,
+        top_p: 0.95,
+        max_tokens: 2048,
+        stream: true, // 타이핑 효과를 위한 스트리밍 켜기
       };
     }
 
@@ -113,6 +135,7 @@ export const streamChat = async (options: StreamChatOptions) => {
         body: JSON.stringify(body),
       });
 
+      // 제미나이 한도 초과 시 키 교체 로직
       if (response.status === 429 && isGemini) {
         useApiKeyStore.getState().rotateKey();
         const nextApiKey = useApiKeyStore.getState().getNextKey();
@@ -149,7 +172,8 @@ export const streamChat = async (options: StreamChatOptions) => {
               const json = JSON.parse(line.substring(6));
               delta = json.candidates?.[0]?.content?.parts?.[0]?.text;
             } 
-            else if (isGroq && line.startsWith("data: ")) {
+            // 🌟 Groq와 GitHub Models(GPT)는 동일한 OpenAI 표준 스트리밍 규격을 사용하므로 묶어서 처리합니다.
+            else if ((isGroq || isGitHub) && line.startsWith("data: ")) {
               if (line.includes("[DONE]")) break; 
               const json = JSON.parse(line.substring(6));
               delta = json.choices?.[0]?.delta?.content;
@@ -165,6 +189,7 @@ export const streamChat = async (options: StreamChatOptions) => {
               options.onDelta(delta);
             }
           } catch (e) {
+            // 스트리밍 조각 파싱 에러 무시
           }
         }
       }

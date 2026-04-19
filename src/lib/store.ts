@@ -38,6 +38,7 @@ export interface AppSettings {
   extraApiKeys: ExtraApiKey[];
   historySummary: string;
   selectedModel: string;
+  chatRule: string; // 🌟 모든 모델이 강제로 따라야 할 대화 규칙(길이 등) 추가
 }
 
 export interface Conversation {
@@ -64,10 +65,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   extraApiKeys: [],
   historySummary: "",
   selectedModel: "gemini-3.1-flash-lite",
+  chatRule: "캐릭터의 성격에 맞게 자연스럽고 적절한 길이로 대답해.", // 🌟 기본 규칙
 };
 
-// 🌟 설정 파일이 덮어써지는 것을 막기 위한 전역 플래그
 let loadedSettingsUserId: string | null = null;
+let isConversationsLoaded = false;
 
 function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppSettings {
   const base = { ...DEFAULT_SETTINGS, ...(input || {}) } as AppSettings;
@@ -78,6 +80,7 @@ function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppS
     geminiApiKey: input?.geminiApiKey || "",
     historySummary: input?.historySummary || "",
     selectedModel: input?.selectedModel || "gemini-3.1-flash-lite",
+    chatRule: input?.chatRule || DEFAULT_SETTINGS.chatRule,
   };
 }
 
@@ -136,6 +139,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     extraApiKeys,
     historySummary: row.history_summary || "",
     selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite",
+    chatRule: currentSettings.chatRule, // DB 컬럼 에러 방지를 위해 로컬 우선 사용
     supportingCharacters,
   };
 }
@@ -237,13 +241,10 @@ export function useMessages() {
   return { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages, setMessagesState };
 }
 
-// 🌟 PC-모바일 완벽 동기화: 클라우드 데이터를 안전하게 병합하는 로직
 export function useConversations() {
   const { user } = useAuth();
   const [conversations, setConversationsState] = useState<Conversation[]>(() => loadFromStorage("saved-conversations", []));
   const [showAutoSaves, setShowAutoSavesState] = useState(() => loadFromStorage("show-auto-saves", true));
-  
-  // 클라우드와 동기화 중인지 확인하는 내부 상태 (중복 덮어쓰기 방지용)
   const [isSyncing, setIsSyncing] = useState(true); 
 
   useEffect(() => {
@@ -253,7 +254,7 @@ export function useConversations() {
     }
 
     (async () => {
-      setIsSyncing(true); // 동기화 시작
+      setIsSyncing(true);
       const { data, error } = await supabase.from("conversations").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
       
       if (error) {
@@ -266,8 +267,6 @@ export function useConversations() {
         
         setConversationsState(prev => {
           const merged = [...prev];
-          
-          // 1. 클라우드 최신 데이터를 로컬에 덮어쓰기
           remoteConvs.forEach(remote => {
             const index = merged.findIndex(l => l.id === remote.id);
             if (index > -1) { 
@@ -277,7 +276,6 @@ export function useConversations() {
             }
           });
 
-          // 2. 로컬에만 있고 클라우드에 없는 데이터가 있다면 서버로 밀어올리기
           const localOnly = merged.filter(m => !remoteConvs.find(r => r.id === m.id));
           localOnly.forEach(async (localConv) => {
             await supabase.from("conversations").upsert({
@@ -295,7 +293,7 @@ export function useConversations() {
           return final;
         });
       }
-      setIsSyncing(false); // 동기화 완료! 이제 안심하고 저장 가능
+      setIsSyncing(false);
     })();
   }, [user]);
 
@@ -312,7 +310,6 @@ export function useConversations() {
       return updated;
     });
 
-    // 🌟 동기화가 완전히 끝난 상태에서만 클라우드에 업로드 (데이터 증발 차단)
     if (user && !isSyncing) {
       const { error } = await supabase.from("conversations").upsert({
         id: convId, 
@@ -329,7 +326,6 @@ export function useConversations() {
   }, [user, isSyncing]);
 
   const autoSaveConversation = useCallback(async (messages: ChatMessage[], settings: AppSettings) => {
-    // 🌟 동기화 중일 때는 자동저장을 막아서 클라우드 데이터 증발 방지
     if (messages.length === 0 || isSyncing) return; 
     const autoTitle = `[자동저장] ${settings.charName || "AI 캐릭터"}`;
     const freshConvs = JSON.parse(localStorage.getItem("saved-conversations") || "[]") as Conversation[];

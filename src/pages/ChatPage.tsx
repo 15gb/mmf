@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users, Edit3 } from "lucide-react";
+import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users, Edit3, UserPlus } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
@@ -57,9 +57,21 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // 🌟 그룹 채팅 참여 조연 상태 관리 (브라우저 로컬스토리지에 저장)
+  const [activeExtras, setActiveExtras] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("active-extras") || "[]"); }
+    catch { return []; }
+  });
+  const [showParticipantModal, setShowParticipantModal] = useState(false);
+
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
   const autoSaveRef = useRef(autoSaveConversation);
+
+  // 체크박스 변경 시 로컬스토리지 즉시 업데이트
+  useEffect(() => {
+    localStorage.setItem("active-extras", JSON.stringify(activeExtras));
+  }, [activeExtras]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -104,7 +116,6 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
-  // 🌟 모바일에서도 완벽하게 작동하는 자동 저장 이벤트 리스너 추가
   useEffect(() => {
     const handleAutoSave = () => {
       if (messagesRef.current.length > 0) {
@@ -113,7 +124,6 @@ const ChatPage = () => {
     };
 
     const handleVisibilityChange = () => {
-      // 폰 화면이 꺼지거나 앱을 내렸을 때 발동
       if (document.visibilityState === "hidden") {
         handleAutoSave();
       }
@@ -192,28 +202,54 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    let systemPrompt = `너는 "${settings.charName}"를 연기하는 숙련된 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.
-성격: ${settings.charPersona}, 세계관: ${settings.worldSetting}, 조연 정보: ${JSON.stringify(settings.supportingCharacters)}
+    // 🌟 1. 참여 중인 조연 필터링
+    const participatingExtras = settings.supportingCharacters.filter(c => activeExtras.includes(c.id));
+    const isMultiCharacter = participatingExtras.length > 0;
+
+    // 🌟 2. 상황에 맞는 프롬프트 동적 생성
+    let systemPrompt = `너는 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.\n세계관: ${settings.worldSetting}\n\n`;
+
+    if (isMultiCharacter) {
+      // 👥 [그룹 채팅 모드] 프롬프트
+      const extraNames = participatingExtras.map(e => e.name).join(", ");
+      const extraProfiles = participatingExtras.map(e => `- ${e.name}: ${e.persona}`).join("\n");
+      
+      systemPrompt += `[현재 대화 참여자 (주연 1명 + 조연 ${participatingExtras.length}명)]
+메인 캐릭터(주연): ${settings.charName} (성격: ${settings.charPersona})
+조연 캐릭터: ${extraNames}
+(조연 성격 상세: \n${extraProfiles})
+
+[다중 캐릭터 그룹 채팅 절대 규칙 (우선순위 1순위)]
+1. 강제 규칙: ${settings.chatRule || "각 캐릭터의 성격에 맞게 적절히 대답하라."}
+2. 단체 대화: 현재 주연과 선택된 조연들이 한 공간에 있습니다. 유저의 말에 대해 주연과 조연들이 각자의 성격에 맞게 반응하며, 서로 대화를 주고받는(티키타카) 장면을 작성하세요.
+3. 발화자 표기 (필수): 대화가 섞이지 않게 누가 말하는지 명확히 알 수 있도록, **모든 대사나 행동 묘사 앞에 반드시 \`**[캐릭터명]**\` 을 표기**하세요.
+   (예시: **[${settings.charName}]** "안녕?", **[조연이름]** "어, 왔어?")
+4. 분량 조율: 대화 참여자가 많으므로, 한 캐릭터가 독점해서 길게 말하지 않도록 각자의 분량을 알맞게 조율하여 전체적인 흐름이 자연스럽게 만드세요.
+5. 언어: 한자/일본어 사용 금지.`;
+    } else {
+      // 👤 [1:1 채팅 모드] 기존 프롬프트
+      systemPrompt += `[역할] 너는 메인 캐릭터 "${settings.charName}" 이다.
+성격: ${settings.charPersona}
+조연 정보(참고용): ${JSON.stringify(settings.supportingCharacters)}
 
 [채팅 작성 절대 규칙]
-1. **대화 비중 극대화:** 답변의 70% 이상을 캐릭터의 직접적인 대사("")로 구성하라. 나레이션은 상황 묘사에만 짧게 써라.
-2. **분량 엄수:** 공백 포함 **최소 200자 이상, 최대 500자 이내**로 작성하라.
-3. **자동 분할:** 부득이하게 답변이 500자를 초과할 것 같으면, 반드시 중간에 \`${SPLIT_MARKER}\` 마커를 삽입하여 답변을 두 개의 덩어리로 나누어라.
-4. **언어 제한:** 한자(漢字)나 일본어(日本語) 사용은 엄격히 금지. 자연스러운 한국어(한글)만 사용하라.
-5. **개입 최소화 (핵심):** 대화 맥락상 유저나 특정 조연이 등장할 타이밍이 아니라면 억지로 이름을 부르거나 끌어들이지 마라. 억지로 유저를 쳐다보거나 유저의 의견을 묻는 등 부자연스러운 서술을 금지한다. 상황에 자연스럽게 융화시켜라.`;
+1. 강제 규칙: ${settings.chatRule || "캐릭터의 성격에 맞게 적절한 길이로 대답하라."}
+2. 대화 비중: 답변의 70% 이상을 직접적인 대사("")로 구성하라. 나레이션은 짧게 써라.
+3. 분할: 부득이하게 답변이 500자를 초과하면 반드시 중간에 \`${SPLIT_MARKER}\` 마커를 삽입해 두 덩어리로 나누어라.
+4. 언어 제한: 한자나 일본어 금지. 한국어만 사용.
+5. 개입 최소화: 대화 맥락에 맞지 않는다면 유저나 조연을 억지로 부르거나 끌어들이지 마라.`;
+    }
 
     if (isAuto) {
-      systemPrompt += `\n\n[특수: 자동 진행 모드 (혼잣말/단독 행동)]
-- 현재 유저의 입력이 없다(공백 상태). 절대 유저의 행동이나 대사를 네가 대신 작성하지 마라. 유저에게 억지로 말을 걸지도 마라.
-- 오직 AI 캐릭터("${settings.charName}") 혼자만의 내면 생각, 혼잣말, 단독 행동, 혹은 주변 환경 묘사를 통해 자연스럽게 스토리를 이끌어가라.`;
+      systemPrompt += `\n\n[특수: 자동 진행 모드] 현재 유저의 입력이 없다. 절대 유저의 대사를 네가 대신 작성하지 마라. 현재 참여중인 캐릭터들끼리의 내면 생각, 혼잣말, 단독 행동으로 스토리를 진행하라.`;
     } else if (isSummon) {
-      systemPrompt += `\n\n[특수: 엑스트라 등장] 상황에 맞는 새로운 인물이나 설정된 조연을 등장시켜 짧고 강렬한 대화를 주고받아라.`;
+      systemPrompt += `\n\n[특수: 엑스트라 난입] 현재 맥락에 맞는 엑스트라나 대화에 참여하지 않던 조연을 1명 난입시켜 짧고 강렬한 대사를 치게 하라.`;
     }
 
     const history = messages.slice(-200).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     
     const combinedPrompt = isAuto
-      ? `${systemPrompt}\n\n[기록]\n${history}\n\n[시스템: 유저의 개입 없이 시간이 흐름. 캐릭터 단독 진행]\nAI:`
+      ? `${systemPrompt}\n\n[기록]\n${history}\n\n[시스템: 유저의 개입 없이 시간이 흐름]\nAI:`
       : `${systemPrompt}\n\n[기록]\n${history}\n\nUser: ${content}\n\nAI:`;
 
     let fullContent = "";
@@ -222,6 +258,7 @@ const ChatPage = () => {
     try {
       await streamChat({
         message: combinedPrompt,
+        settings: settings, 
         onDelta: (delta) => {
           fullContent += delta;
           if (!assistantStarted) {
@@ -250,7 +287,7 @@ const ChatPage = () => {
       setIsLoading(false); 
       toast.error(error.message || "오류가 발생했습니다."); 
     }
-  }, [input, isLoading, messages, settings, addMessage, updateLastAssistant]);
+  }, [input, isLoading, messages, settings, addMessage, updateLastAssistant, activeExtras]);
 
   const handleNarration = useCallback(() => {
     if (isLoading) return;
@@ -270,21 +307,19 @@ const ChatPage = () => {
 
     setIsLoading(true);
     const toastId = toast.loading(
-      targetCharacter ? `"${targetCharacter}" 등장 준비 중...` : "조연이 개입할 타이밍을 엿보는 중...", 
+      targetCharacter ? `"${targetCharacter}" 등장 준비 중...` : "새 인물이 개입할 타이밍 엿보는 중...", 
       { id: "summon" }
     );
 
-    let systemPrompt = `너는 현재 설정된 조연 캐릭터 중 한 명이다. 
-조연 정보: ${JSON.stringify(settings.supportingCharacters)}
-`;
+    let systemPrompt = `너는 현재 설정된 캐릭터 중 한 명이다. 조연 정보: ${JSON.stringify(settings.supportingCharacters)}`;
 
     if (targetCharacter) {
-      systemPrompt += `반드시 "${targetCharacter}"(이)라는 인물이 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라. 만약 설정에 없는 인물이더라도 해당 이름의 엑스트라로 가정하여 말하라.\n`;
+      systemPrompt += `반드시 "${targetCharacter}"(이)라는 인물이 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라.`;
     } else {
-      systemPrompt += `현재 대화 맥락을 읽고, 조연 중 한 명이 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라. 만약 설정된 조연이 없다면 맥락에 맞는 엑스트라를 임의로 창작하라.\n`;
+      systemPrompt += `현재 대화 맥락을 읽고, 누군가 대화에 불쑥 끼어드는 상황을 가정하여 1~2문장의 대사를 작성하라.`;
     }
 
-    systemPrompt += `유저("${settings.myName}")나 메인 캐릭터("${settings.charName}")의 행동은 절대 묘사하지 마라.\n출력 형식: **[${targetCharacter || "조연 이름"}]** "대사 내용"`;
+    systemPrompt += `\n출력 형식: **[${targetCharacter || "등장인물 이름"}]** "대사 내용"`;
 
     const history = messages.slice(-20).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     const prompt = `${systemPrompt}\n\n[기록]\n${history}\n\n조연의 대사:`;
@@ -293,6 +328,7 @@ const ChatPage = () => {
     try {
       await streamChat({
         message: prompt,
+        settings: settings, 
         onDelta: (delta) => { extraLine += delta; },
         onDone: () => {
           toast.dismiss(toastId);
@@ -359,18 +395,25 @@ const ChatPage = () => {
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-20">
-        <button onClick={() => navigate("/settings")} className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity overflow-hidden max-w-[55%]">
+        <button onClick={() => navigate("/settings")} className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity overflow-hidden max-w-[50%]">
           <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold overflow-hidden shrink-0">
             {settings.charAvatar ? (
               <img src={settings.charAvatar} className="w-full h-full object-cover" alt="avatar" />
             ) : (settings.charName || "AI")[0]}
           </div>
           <div className="text-left truncate">
-            <p className="font-semibold text-sm leading-tight truncate">{settings.charName || "AI 캐릭터"}</p>
+            <p className="font-semibold text-sm leading-tight truncate">
+              {settings.charName || "AI 캐릭터"} 
+              {activeExtras.length > 0 && <span className="text-xs text-primary ml-1">(+{activeExtras.length})</span>}
+            </p>
             <p className="text-[10px] text-muted-foreground">프로필 설정</p>
           </div>
         </button>
         <div className="flex gap-1 text-muted-foreground">
+          {/* 🌟 1. 대화 참여자 설정 버튼 추가 */}
+          <button onClick={() => setShowParticipantModal(true)} title="참여자 설정" className="p-2 hover:text-primary transition-colors">
+            <UserPlus size={18} />
+          </button>
           <button onClick={handleGenerateImage} disabled={isLoading} title="이미지 생성" className="p-2 hover:text-primary transition-colors disabled:opacity-40">
             {isGeneratingImage ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
           </button>
@@ -380,8 +423,6 @@ const ChatPage = () => {
           <button onClick={() => navigate("/conversations")} title="목록" className="p-2 hover:text-foreground transition-colors">
             <List size={18} />
           </button>
-          
-          {/* 🌟 덮어쓰기 버그 원인 해결: 휴지통 클릭 시 기존 연결된 ID(투명 꼬리표)도 같이 파괴합니다! */}
           <button 
             onClick={() => { 
               if(window.confirm("대화를 모두 지울까요?")) {
@@ -389,17 +430,65 @@ const ChatPage = () => {
                 setCurrentConvId(null); 
               }
             }} 
-            title="초기화" 
-            className="p-2 hover:text-destructive transition-colors"
-          >
+            title="초기화" className="p-2 hover:text-destructive transition-colors">
             <Trash2 size={18} />
           </button>
-          
           <button onClick={() => navigate("/settings")} title="설정" className="p-2 hover:text-foreground transition-colors">
             <Settings size={18} />
           </button>
         </div>
       </header>
+
+      {/* 🌟 2. 대화 참여자 선택 모달 */}
+      {showParticipantModal && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-card w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-border">
+            <h3 className="text-base font-bold flex items-center gap-2">
+              <Users size={18} className="text-primary" /> 그룹 대화 참여자
+            </h3>
+            <p className="text-xs text-muted-foreground">체크된 캐릭터들이 유저의 채팅에 동시에 반응하며 대화에 참여합니다.</p>
+            
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {/* 주연은 항상 켜져있음 */}
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 cursor-not-allowed opacity-80 border border-border">
+                <input type="checkbox" checked disabled className="w-4 h-4 rounded" />
+                <span className="text-sm font-semibold">👑 {settings.charName} <span className="text-xs text-muted-foreground font-normal">(주연)</span></span>
+              </label>
+              
+              {/* 조연 목록 매핑 */}
+              {settings.supportingCharacters.map(char => (
+                <label key={char.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted cursor-pointer transition-colors border border-border/50">
+                  <input
+                    type="checkbox"
+                    checked={activeExtras.includes(char.id)}
+                    onChange={(e) => {
+                      if(e.target.checked) setActiveExtras(prev => [...prev, char.id]);
+                      else setActiveExtras(prev => prev.filter(id => id !== char.id));
+                    }}
+                    className="w-4 h-4 rounded border-border accent-primary"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">{char.name}</span>
+                    <span className="text-[10px] text-muted-foreground truncate max-w-[200px]">{char.persona}</span>
+                  </div>
+                </label>
+              ))}
+              
+              {settings.supportingCharacters.length === 0 && (
+                <div className="py-4 text-center text-sm text-muted-foreground">
+                  추가된 조연이 없습니다.<br/>설정 화면에서 조연을 추가해보세요!
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-end pt-2">
+              <button onClick={() => setShowParticipantModal(false)} className="px-5 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-xl active:scale-95 transition-all">
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div 
         ref={scrollRef} 

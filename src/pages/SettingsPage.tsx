@@ -104,7 +104,7 @@ const SettingsPage = () => {
   };
 
   const handleAddApiKey = () => {
-    const newKey: ExtraApiKey = { id: generateUUID(), name: "Groq", value: "" };
+    const newKey: ExtraApiKey = { id: generateUUID(), name: "GitHub", value: "" };
     update("extraApiKeys", [...form.extraApiKeys, newKey]);
   };
 
@@ -231,6 +231,15 @@ const SettingsPage = () => {
           </div>
           <Field label="상세 세계관" value={form.worldSetting} onChange={(v) => update("worldSetting", v)} multiline placeholder="시대상, 배경 설명" />
           <Field label="노트 (장기 기억)" value={form.note} onChange={(v) => update("note", v)} multiline placeholder="AI가 기억해야 할 특별한 사건이나 정보" />
+          
+          {/* 🌟 챗 길이 강제 설정 추가 */}
+          <Field 
+            label="절대 규칙 (답변 길이 및 말투 강제)" 
+            value={form.chatRule} 
+            onChange={(v) => update("chatRule", v)} 
+            multiline 
+            placeholder="예: 답변은 무조건 3문장 이내로 해. 절대 길게 말하지 마." 
+          />
 
           <div className="mt-6 pt-5 border-t border-border/50 space-y-4">
             <div className="space-y-2">
@@ -245,6 +254,8 @@ const SettingsPage = () => {
                 <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Google)</option>
                 <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
                 <option value="command-r">Command R (Cohere)</option>
+                {/* 🌟 GPT-5 추가 */}
+                <option value="gpt-5">GPT-5 (GitHub Models 무료)</option>
               </select>
             </div>
 
@@ -276,13 +287,15 @@ const SettingsPage = () => {
                     >
                       <option value="Groq">Groq (Llama)</option>
                       <option value="Cohere">Cohere (Command R)</option>
+                      {/* 🌟 GitHub 키 항목 추가 */}
+                      <option value="GitHub">GitHub (GPT-5용)</option>
                     </select>
 
                     <input 
                       type="password" 
                       value={apiKeyObj.value} 
                       onChange={(e) => handleUpdateApiKey(apiKeyObj.id, "value", e.target.value)} 
-                      placeholder="실제 API 키 (sk-...)" 
+                      placeholder="실제 API 키 (sk-... 또는 ghp_...)" 
                       className="w-full rounded-md bg-background px-3 py-2 text-sm border border-border focus:outline-none focus:ring-2 focus:ring-ring" 
                     />
                   </div>
