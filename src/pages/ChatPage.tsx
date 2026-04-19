@@ -57,7 +57,6 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 🌟 그룹 채팅 참여 조연 상태 관리 (브라우저 로컬스토리지에 저장)
   const [activeExtras, setActiveExtras] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("active-extras") || "[]"); }
     catch { return []; }
@@ -68,7 +67,6 @@ const ChatPage = () => {
   const settingsRef = useRef(settings);
   const autoSaveRef = useRef(autoSaveConversation);
 
-  // 체크박스 변경 시 로컬스토리지 즉시 업데이트
   useEffect(() => {
     localStorage.setItem("active-extras", JSON.stringify(activeExtras));
   }, [activeExtras]);
@@ -202,15 +200,12 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // 🌟 1. 참여 중인 조연 필터링
     const participatingExtras = settings.supportingCharacters.filter(c => activeExtras.includes(c.id));
     const isMultiCharacter = participatingExtras.length > 0;
 
-    // 🌟 2. 상황에 맞는 프롬프트 동적 생성
     let systemPrompt = `너는 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.\n세계관: ${settings.worldSetting}\n\n`;
 
     if (isMultiCharacter) {
-      // 👥 [그룹 채팅 모드] 프롬프트
       const extraNames = participatingExtras.map(e => e.name).join(", ");
       const extraProfiles = participatingExtras.map(e => `- ${e.name}: ${e.persona}`).join("\n");
       
@@ -227,7 +222,6 @@ const ChatPage = () => {
 4. 분량 조율: 대화 참여자가 많으므로, 한 캐릭터가 독점해서 길게 말하지 않도록 각자의 분량을 알맞게 조율하여 전체적인 흐름이 자연스럽게 만드세요.
 5. 언어: 한자/일본어 사용 금지.`;
     } else {
-      // 👤 [1:1 채팅 모드] 기존 프롬프트
       systemPrompt += `[역할] 너는 메인 캐릭터 "${settings.charName}" 이다.
 성격: ${settings.charPersona}
 조연 정보(참고용): ${JSON.stringify(settings.supportingCharacters)}
@@ -246,7 +240,9 @@ const ChatPage = () => {
       systemPrompt += `\n\n[특수: 엑스트라 난입] 현재 맥락에 맞는 엑스트라나 대화에 참여하지 않던 조연을 1명 난입시켜 짧고 강렬한 대사를 치게 하라.`;
     }
 
-    const history = messages.slice(-200).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
+    // 🌟 깃허브 GPT 모델은 토큰 제한이 빡빡하므로 최근 10개만, 제미나이는 40개만 기억하도록 조절
+    const memoryCount = settings.selectedModel.includes("gpt") ? -10 : -40;
+    const history = messages.slice(memoryCount).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     
     const combinedPrompt = isAuto
       ? `${systemPrompt}\n\n[기록]\n${history}\n\n[시스템: 유저의 개입 없이 시간이 흐름]\nAI:`
@@ -321,7 +317,10 @@ const ChatPage = () => {
 
     systemPrompt += `\n출력 형식: **[${targetCharacter || "등장인물 이름"}]** "대사 내용"`;
 
-    const history = messages.slice(-20).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
+    // 🌟 조연 난입 시에도 GPT는 최근 8개까지만 잘라서 보냅니다.
+    const memoryCount = settings.selectedModel.includes("gpt") ? -8 : -20;
+    const history = messages.slice(memoryCount).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
+    
     const prompt = `${systemPrompt}\n\n[기록]\n${history}\n\n조연의 대사:`;
 
     let extraLine = "";
@@ -410,7 +409,6 @@ const ChatPage = () => {
           </div>
         </button>
         <div className="flex gap-1 text-muted-foreground">
-          {/* 🌟 1. 대화 참여자 설정 버튼 추가 */}
           <button onClick={() => setShowParticipantModal(true)} title="참여자 설정" className="p-2 hover:text-primary transition-colors">
             <UserPlus size={18} />
           </button>
@@ -439,7 +437,6 @@ const ChatPage = () => {
         </div>
       </header>
 
-      {/* 🌟 2. 대화 참여자 선택 모달 */}
       {showParticipantModal && (
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-border">
@@ -449,13 +446,11 @@ const ChatPage = () => {
             <p className="text-xs text-muted-foreground">체크된 캐릭터들이 유저의 채팅에 동시에 반응하며 대화에 참여합니다.</p>
             
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              {/* 주연은 항상 켜져있음 */}
               <label className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 cursor-not-allowed opacity-80 border border-border">
                 <input type="checkbox" checked disabled className="w-4 h-4 rounded" />
                 <span className="text-sm font-semibold">👑 {settings.charName} <span className="text-xs text-muted-foreground font-normal">(주연)</span></span>
               </label>
               
-              {/* 조연 목록 매핑 */}
               {settings.supportingCharacters.map(char => (
                 <label key={char.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted cursor-pointer transition-colors border border-border/50">
                   <input
