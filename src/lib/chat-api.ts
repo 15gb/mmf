@@ -30,7 +30,7 @@ export const streamChat = async (options: StreamChatOptions) => {
   const isGemini = selectedModel.includes("gemini");
   const isGroq = selectedModel.includes("llama");
   const isCohere = selectedModel.includes("command");
-  const isGitHub = selectedModel.includes("gpt"); // 🌟 GPT 모델 감지 추가
+  const isGitHub = selectedModel.includes("gpt") || selectedModel.includes("openai"); // 🌟 openai/gpt-5 감지
 
   // 🌟 모델에 맞는 API 키를 동적으로 탐색하여 할당합니다.
   let currentApiKey = "";
@@ -113,18 +113,19 @@ export const streamChat = async (options: StreamChatOptions) => {
       };
     }
     // ==========================================
-    // 4. 🌟 GitHub Models (GPT-5 등) 통신 세팅 추가
+    // 4. 🌟 GitHub Models (openai/gpt-5 등) 통신 세팅
     // ==========================================
     else if (isGitHub) {
-      url = "https://models.inference.ai.azure.com/chat/completions";
+      // 🌟 찾아오신 공식 깃허브 전용 주소로 변경
+      url = "https://models.github.ai/inference/chat/completions";
       headers["Authorization"] = `Bearer ${key}`;
       body = {
-        model: selectedModel, // "gpt-5" 혹은 "gpt-4o-mini" 동적 할당
+        model: selectedModel, // 여기서 "openai/gpt-5"가 전송됩니다.
         messages: [{ role: "user", content: options.message }],
         temperature: 0.9,
         top_p: 0.95,
         max_tokens: 2048,
-        stream: true, // 타이핑 효과를 위한 스트리밍 켜기
+        stream: true, 
       };
     }
 
