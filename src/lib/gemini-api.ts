@@ -17,8 +17,8 @@ export interface WorldInfo {
   tone?: string;
 }
 
-/** 🌟 모델 설정: 사용자 요청에 따라 Gemini 3.1 Flash Lite Preview 사용 */
-const MODEL_NAME = "gemini-3.1-flash-lite-preview";
+/** 🌟 모델 설정: 사용자 요청에 따라 Gemini 3.1 Flash Lite 사용 */
+const MODEL_NAME = "gemini-3.1-flash-lite";
 
 /** 🌟 모든 카테고리에 대해 검열을 끄는 설정 (원본 보존) */
 const safetySettings = [
