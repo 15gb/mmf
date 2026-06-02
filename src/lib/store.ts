@@ -15,6 +15,7 @@ export interface SupportingCharacter {
   name: string;
   persona: string;
   avatar: string;
+  personal_memory?: string; // 🌟 1번 기능: 개별 캐릭터가 유저에 대해 알게 된 정보를 저장하는 전용 기억(노트) 공간
 }
 
 export interface ExtraApiKey {
@@ -30,7 +31,7 @@ export interface AppSettings {
   charPersona: string;
   charGreeting: string;
   worldSetting: string;
-  note: string;
+  note: string; // 메인 캐릭터 장기 기억용
   charAvatar: string;
   chatBackground: string;
   supportingCharacters: SupportingCharacter[];
@@ -38,7 +39,7 @@ export interface AppSettings {
   extraApiKeys: ExtraApiKey[];
   historySummary: string;
   selectedModel: string;
-  chatRule: string; // 🌟 모든 모델이 강제로 따라야 할 대화 규칙(길이 등) 추가
+  chatRule: string; 
 }
 
 export interface Conversation {
@@ -65,7 +66,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   extraApiKeys: [],
   historySummary: "",
   selectedModel: "gemini-3.1-flash-lite",
-  chatRule: "캐릭터의 성격에 맞게 자연스럽고 적절한 길이로 대답해.", // 🌟 기본 규칙
+  chatRule: "캐릭터의 성격에 맞게 자연스럽고 적절한 길이로 대답해.", 
 };
 
 let loadedSettingsUserId: string | null = null;
@@ -139,7 +140,7 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     extraApiKeys,
     historySummary: row.history_summary || "",
     selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite",
-    chatRule: currentSettings.chatRule, // DB 컬럼 에러 방지를 위해 로컬 우선 사용
+    chatRule: currentSettings.chatRule, 
     supportingCharacters,
   };
 }
@@ -198,7 +199,26 @@ export function useSettings() {
     await setSettings(resetData);
   }, [settings.geminiApiKey, settings.extraApiKeys, settings.selectedModel, setSettings]);
 
-  return { settings, setSettings, resetRPContent };
+  // 🌟 3번 조연 추출 및 1번 기억 수정 기능을 위한 신규 헬퍼 함수들
+  const addSupportingCharacter = useCallback(async (char: Omit<SupportingCharacter, "id">) => {
+    const newChar = { ...char, id: generateUUID() };
+    await setSettings({
+      ...settings,
+      supportingCharacters: [...settings.supportingCharacters, newChar]
+    });
+    return newChar;
+  }, [settings, setSettings]);
+
+  const updateSupportingCharacter = useCallback(async (id: string, updates: Partial<SupportingCharacter>) => {
+    await setSettings({
+      ...settings,
+      supportingCharacters: settings.supportingCharacters.map(c =>
+        c.id === id ? { ...c, ...updates } : c
+      )
+    });
+  }, [settings, setSettings]);
+
+  return { settings, setSettings, resetRPContent, addSupportingCharacter, updateSupportingCharacter };
 }
 
 export function useMessages() {

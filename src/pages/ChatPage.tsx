@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users, Edit3, UserPlus } from "lucide-react";
+import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users, Edit3, UserPlus, BookOpen, Search } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
@@ -42,7 +42,14 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  const { settings, setSettings: updateSettings } = useSettings();
+  // store.ts에서 업데이트된 함수들을 가져옵니다. (에러 방지를 위해 기본값 빈 함수 설정)
+  const { 
+    settings, 
+    setSettings: updateSettings, 
+    addSupportingCharacter = async () => {}, 
+    updateSupportingCharacter = async () => {} 
+  } = useSettings();
+  
   const { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
@@ -56,6 +63,13 @@ const ChatPage = () => {
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // --- 추가된 기능들의 상태 관리 ---
+  const [activeUser, setActiveUser] = useState(true);
+  const [activeMain, setActiveMain] = useState(true);
+  const [memoryModal, setMemoryModal] = useState<{ id: string | "MAIN", name: string, memory: string } | null>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractedNPCs, setExtractedNPCs] = useState<{name: string, persona: string}[]>([]);
 
   const [activeExtras, setActiveExtras] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("active-extras") || "[]"); }
@@ -201,38 +215,30 @@ const ChatPage = () => {
     setIsLoading(true);
 
     const participatingExtras = settings.supportingCharacters.filter(c => activeExtras.includes(c.id));
-    const isMultiCharacter = participatingExtras.length > 0;
-
-    let systemPrompt = `너는 역할극 작가이다. 유저의 이름은 "${settings.myName}"이다.\n세계관: ${settings.worldSetting}\n\n`;
-
-    if (isMultiCharacter) {
-      const extraNames = participatingExtras.map(e => e.name).join(", ");
-      const extraProfiles = participatingExtras.map(e => `- ${e.name}: ${e.persona}`).join("\n");
-      
-      systemPrompt += `[현재 대화 참여자 (주연 1명 + 조연 ${participatingExtras.length}명)]
-메인 캐릭터(주연): ${settings.charName} (성격: ${settings.charPersona})
-조연 캐릭터: ${extraNames}
-(조연 성격 상세: \n${extraProfiles})
-
-[다중 캐릭터 그룹 채팅 절대 규칙 (우선순위 1순위)]
-1. 강제 규칙: ${settings.chatRule || "각 캐릭터의 성격에 맞게 적절히 대답하라."}
-2. 단체 대화: 현재 주연과 선택된 조연들이 한 공간에 있습니다. 유저의 말에 대해 주연과 조연들이 각자의 성격에 맞게 반응하며, 서로 대화를 주고받는(티키타카) 장면을 작성하세요.
-3. 발화자 표기 (필수): 대화가 섞이지 않게 누가 말하는지 명확히 알 수 있도록, **모든 대사나 행동 묘사 앞에 반드시 \`**[캐릭터명]**\` 을 표기**하세요.
-   (예시: **[${settings.charName}]** "안녕?", **[조연이름]** "어, 왔어?")
-4. 분량 조율: 대화 참여자가 많으므로, 한 캐릭터가 독점해서 길게 말하지 않도록 각자의 분량을 알맞게 조율하여 전체적인 흐름이 자연스럽게 만드세요.
-5. 언어: 한자/일본어 사용 금지.`;
-    } else {
-      systemPrompt += `[역할] 너는 메인 캐릭터 "${settings.charName}" 이다.
-성격: ${settings.charPersona}
-조연 정보(참고용): ${JSON.stringify(settings.supportingCharacters)}
-
-[채팅 작성 절대 규칙]
-1. 강제 규칙: ${settings.chatRule || "캐릭터의 성격에 맞게 적절한 길이로 대답하라."}
-2. 대화 비중: 답변의 70% 이상을 직접적인 대사("")로 구성하라. 나레이션은 짧게 써라.
-3. 분할: 부득이하게 답변이 500자를 초과하면 반드시 중간에 \`${SPLIT_MARKER}\` 마커를 삽입해 두 덩어리로 나누어라.
-4. 언어 제한: 한자나 일본어 금지. 한국어만 사용.
-5. 개입 최소화: 대화 맥락에 맞지 않는다면 유저나 조연을 억지로 부르거나 끌어들이지 마라.`;
+    
+    // --- 프롬프트 구성: 유저, 메인캐릭터, 조연 및 개별 기억 시스템 통합 ---
+    let systemPrompt = `너는 역할극 작가이다. \n세계관: ${settings.worldSetting}\n\n`;
+    
+    const participants = [];
+    if (activeUser) {
+      participants.push(`- 유저(이름: ${settings.myName || "유저"}, 소개: ${settings.myIntro || "없음"})`);
     }
+    if (activeMain) {
+      participants.push(`- 주연(${settings.charName} - 성격: ${settings.charPersona} / 유저에 대한 기억: ${settings.note || '아직 모름'})`);
+    }
+    
+    participatingExtras.forEach(e => {
+      participants.push(`- 조연(${e.name} - 성격: ${e.persona} / 유저에 대한 기억: ${e.personal_memory || '아직 모름'})`);
+    });
+
+    systemPrompt += `[현재 대화 참여자 목록]\n${participants.join("\n")}\n\n`;
+
+    systemPrompt += `[다중 캐릭터 그룹 채팅 절대 규칙]
+1. 강제 규칙: ${settings.chatRule || "각 캐릭터의 성격과 '유저에 대한 기억'에 맞게 적절히 대답하라."}
+2. 단체 대화: 대화 참여자들끼리 각자의 성격에 맞게 반응하며 티키타카를 하라. (현재 참여자 목록에 없는 캐릭터는 대화에 개입시키지 마라.)
+3. 발화자 표기 (필수): 대화가 섞이지 않게 누가 말하는지 명확히 알 수 있도록, **모든 대사나 행동 묘사 앞에 반드시 \`**[캐릭터명]**\` 을 표기**하라.
+4. 정보 격차: 각 캐릭터는 '유저에 대한 기억'에 적힌 정보만 알고 있다. 모르는 정보는 처음 듣는 것처럼 행동하라.
+5. 언어: 한자/일본어 사용 금지. 한국어만 사용.`;
 
     if (isAuto) {
       systemPrompt += `\n\n[특수: 자동 진행 모드] 현재 유저의 입력이 없다. 절대 유저의 대사를 네가 대신 작성하지 마라. 현재 참여중인 캐릭터들끼리의 내면 생각, 혼잣말, 단독 행동으로 스토리를 진행하라.`;
@@ -240,7 +246,6 @@ const ChatPage = () => {
       systemPrompt += `\n\n[특수: 엑스트라 난입] 현재 맥락에 맞는 엑스트라나 대화에 참여하지 않던 조연을 1명 난입시켜 짧고 강렬한 대사를 치게 하라.`;
     }
 
-    // 🌟 깃허브 GPT 모델은 토큰 제한이 빡빡하므로 최근 10개만, 제미나이는 40개만 기억하도록 조절
     const memoryCount = settings.selectedModel.includes("gpt") ? -10 : -40;
     const history = messages.slice(memoryCount).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     
@@ -283,7 +288,7 @@ const ChatPage = () => {
       setIsLoading(false); 
       toast.error(error.message || "오류가 발생했습니다."); 
     }
-  }, [input, isLoading, messages, settings, addMessage, updateLastAssistant, activeExtras]);
+  }, [input, isLoading, messages, settings, addMessage, updateLastAssistant, activeExtras, activeUser, activeMain]);
 
   const handleNarration = useCallback(() => {
     if (isLoading) return;
@@ -317,7 +322,6 @@ const ChatPage = () => {
 
     systemPrompt += `\n출력 형식: **[${targetCharacter || "등장인물 이름"}]** "대사 내용"`;
 
-    // 🌟 조연 난입 시에도 GPT는 최근 8개까지만 잘라서 보냅니다.
     const memoryCount = settings.selectedModel.includes("gpt") ? -8 : -20;
     const history = messages.slice(memoryCount).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
     
@@ -363,6 +367,45 @@ const ChatPage = () => {
     }
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
+  // --- 자동 조연 추출 함수 ---
+  const handleExtractNPCs = async () => {
+    setIsExtracting(true);
+    const toastId = toast.loading("최근 대화에서 인물 찾는 중...");
+    try {
+      const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
+      // gemini-api.ts 모듈을 동적으로 가져옵니다.
+      const api = await import("@/lib/gemini-api").catch(() => null);
+      
+      if (api && api.extractCharactersFromHistory) {
+        const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
+        setExtractedNPCs(npcs);
+        if(npcs.length > 0) {
+          toast.success(`${npcs.length}명의 캐릭터를 찾았습니다!`, { id: toastId });
+        } else {
+          toast.info("새로운 캐릭터를 찾지 못했습니다.", { id: toastId });
+        }
+      } else {
+        toast.error("API 함수가 준비되지 않았습니다. (gemini-api.ts 업데이트 필요)", { id: toastId });
+      }
+    } catch (e) {
+      toast.error("조연 추출에 실패했습니다.", { id: toastId });
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // --- 기억(노트) 저장 로직 ---
+  const saveMemory = async () => {
+    if (!memoryModal) return;
+    if (memoryModal.id === "MAIN") {
+      await updateSettings({ ...settings, note: memoryModal.memory });
+    } else {
+      await updateSupportingCharacter(memoryModal.id, { personal_memory: memoryModal.memory });
+    }
+    toast.success("기억이 성공적으로 저장되었습니다.");
+    setMemoryModal(null);
+  };
+
   const renderContent = (msg: { role: string; content: string }) => {
     const imgData = decodeImageMessage(msg.content);
     if (imgData) return <ImageCard url={imgData.url} prompt={imgData.prompt} />;
@@ -403,7 +446,6 @@ const ChatPage = () => {
           <div className="text-left truncate">
             <p className="font-semibold text-sm leading-tight truncate">
               {settings.charName || "AI 캐릭터"} 
-              {activeExtras.length > 0 && <span className="text-xs text-primary ml-1">(+{activeExtras.length})</span>}
             </p>
             <p className="text-[10px] text-muted-foreground">프로필 설정</p>
           </div>
@@ -437,49 +479,148 @@ const ChatPage = () => {
         </div>
       </header>
 
+      {/* 참여자 & 기억 설정 모달 */}
       {showParticipantModal && (
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-card w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-border">
-            <h3 className="text-base font-bold flex items-center gap-2">
-              <Users size={18} className="text-primary" /> 그룹 대화 참여자
+          <div className="bg-card w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-border flex flex-col max-h-[80vh]">
+            <h3 className="text-base font-bold flex items-center gap-2 shrink-0">
+              <Users size={18} className="text-primary" /> 참여자 & 기억 설정
             </h3>
-            <p className="text-xs text-muted-foreground">체크된 캐릭터들이 유저의 채팅에 동시에 반응하며 대화에 참여합니다.</p>
+            <p className="text-xs text-muted-foreground shrink-0">
+              체크된 캐릭터들이 대화에 참여합니다. 책 모양 버튼을 눌러 유저에 대한 기억을 수정하세요.
+            </p>
             
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              <label className="flex items-center gap-3 p-3 rounded-xl bg-muted/40 cursor-not-allowed opacity-80 border border-border">
-                <input type="checkbox" checked disabled className="w-4 h-4 rounded" />
-                <span className="text-sm font-semibold">👑 {settings.charName} <span className="text-xs text-muted-foreground font-normal">(주연)</span></span>
-              </label>
-              
-              {settings.supportingCharacters.map(char => (
-                <label key={char.id} className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted cursor-pointer transition-colors border border-border/50">
-                  <input
-                    type="checkbox"
-                    checked={activeExtras.includes(char.id)}
-                    onChange={(e) => {
-                      if(e.target.checked) setActiveExtras(prev => [...prev, char.id]);
-                      else setActiveExtras(prev => prev.filter(id => id !== char.id));
-                    }}
-                    className="w-4 h-4 rounded border-border accent-primary"
+            <div className="space-y-2 overflow-y-auto pr-1 flex-1">
+              {/* 유저 */}
+              <div className="flex items-center justify-between p-3 rounded-xl hover:bg-muted transition-colors border border-border/50">
+                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                  <input 
+                    type="checkbox" 
+                    checked={activeUser} 
+                    onChange={(e) => setActiveUser(e.target.checked)} 
+                    className="w-4 h-4 rounded border-border accent-primary" 
                   />
-                  <div className="flex flex-col">
-                    <span className="text-sm font-medium">{char.name}</span>
-                    <span className="text-[10px] text-muted-foreground truncate max-w-[200px]">{char.persona}</span>
-                  </div>
+                  <span className="text-sm font-semibold text-primary">👤 {settings.myName || "유저"} (나)</span>
                 </label>
+              </div>
+
+              {/* 메인 캐릭터 */}
+              <div className="flex items-center justify-between p-3 rounded-xl hover:bg-muted transition-colors border border-border/50">
+                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                  <input 
+                    type="checkbox" 
+                    checked={activeMain} 
+                    onChange={(e) => setActiveMain(e.target.checked)} 
+                    className="w-4 h-4 rounded border-border accent-primary" 
+                  />
+                  <span className="text-sm font-semibold">👑 {settings.charName} <span className="text-xs text-muted-foreground font-normal">(주연)</span></span>
+                </label>
+                <button 
+                  onClick={() => setMemoryModal({ id: "MAIN", name: settings.charName, memory: settings.note })} 
+                  className="p-1.5 text-muted-foreground hover:text-primary bg-background rounded-md border border-border shrink-0 ml-2" 
+                  title="유저에 대한 기억 수정"
+                >
+                  <BookOpen size={14} />
+                </button>
+              </div>
+              
+              {/* 조연 캐릭터 목록 */}
+              {settings.supportingCharacters.map(char => (
+                <div key={char.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-muted transition-colors border border-border/50">
+                  <label className="flex items-center gap-3 cursor-pointer flex-1 overflow-hidden">
+                    <input
+                      type="checkbox"
+                      checked={activeExtras.includes(char.id)}
+                      onChange={(e) => {
+                        if(e.target.checked) setActiveExtras(prev => [...prev, char.id]);
+                        else setActiveExtras(prev => prev.filter(id => id !== char.id));
+                      }}
+                      className="w-4 h-4 rounded border-border accent-primary"
+                    />
+                    <div className="flex flex-col truncate">
+                      <span className="text-sm font-medium truncate">{char.name}</span>
+                      <span className="text-[10px] text-muted-foreground truncate">{char.persona}</span>
+                    </div>
+                  </label>
+                  <button 
+                    onClick={() => setMemoryModal({ id: char.id, name: char.name, memory: char.personal_memory || "" })} 
+                    className="p-1.5 text-muted-foreground hover:text-primary bg-background rounded-md border border-border shrink-0 ml-2" 
+                    title="기억 수정"
+                  >
+                    <BookOpen size={14} />
+                  </button>
+                </div>
               ))}
               
               {settings.supportingCharacters.length === 0 && (
                 <div className="py-4 text-center text-sm text-muted-foreground">
-                  추가된 조연이 없습니다.<br/>설정 화면에서 조연을 추가해보세요!
+                  추가된 조연이 없습니다.
+                </div>
+              )}
+            </div>
+
+            {/* 조연 자동 추출 영역 */}
+            <div className="shrink-0 space-y-2 border-t border-border pt-4">
+              <button 
+                onClick={handleExtractNPCs} 
+                disabled={isExtracting} 
+                className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium bg-muted text-foreground rounded-xl hover:bg-muted/80 transition-all border border-border"
+              >
+                {isExtracting ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} 
+                대화에서 조연 자동 찾기
+              </button>
+              
+              {extractedNPCs.length > 0 && (
+                <div className="bg-background border border-border rounded-lg p-2 max-h-32 overflow-y-auto space-y-1 mt-2">
+                  {extractedNPCs.map((npc, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs p-1.5 bg-muted rounded">
+                      <div className="flex flex-col truncate pr-2">
+                        <span className="font-bold truncate">{npc.name}</span>
+                      </div>
+                      <button 
+                        onClick={() => { 
+                          addSupportingCharacter({ name: npc.name, persona: npc.persona, avatar: "", personal_memory: "" }); 
+                          setExtractedNPCs(prev => prev.filter((_, i) => i !== idx));
+                          toast.success(`${npc.name} 추가됨!`); 
+                        }} 
+                        className="px-2 py-1 bg-primary text-primary-foreground rounded text-[10px] shrink-0"
+                      >
+                        추가
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
             
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end pt-2 shrink-0">
               <button onClick={() => setShowParticipantModal(false)} className="px-5 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-xl active:scale-95 transition-all">
                 확인
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 기억 수정 모달 */}
+      {memoryModal && (
+        <div className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-card w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-border">
+            <h3 className="text-base font-bold flex items-center gap-2">
+              <BookOpen size={18} className="text-primary" /> {memoryModal.name}의 기억
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              이 캐릭터가 유저에 대해 알고 있는 정보를 요약하세요. 모르는 정보는 비워두면 됩니다.
+            </p>
+            <textarea 
+              value={memoryModal.memory} 
+              onChange={(e) => setMemoryModal({ ...memoryModal, memory: e.target.value })} 
+              className="w-full h-32 bg-muted rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" 
+              placeholder="예) 유저의 이름은 비요른이며, 어제 술집에서 내 목숨을 구해준 은인이다."
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setMemoryModal(null)} className="px-4 py-2 text-sm hover:bg-muted rounded-lg transition-colors">취소</button>
+              <button onClick={saveMemory} className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg active:scale-95 transition-all shadow-md">저장</button>
             </div>
           </div>
         </div>

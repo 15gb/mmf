@@ -17,8 +17,8 @@ export interface WorldInfo {
   tone?: string;
 }
 
-/** 🌟 모델 설정: 사용자 요청에 따라 Gemini 3.1 Flash Lite Preview 사용 */
-const MODEL_NAME = "gemini-3.1-flash-lite-preview";
+/** 🌟 모델 설정: 사용자 요청에 따라 Gemini 3.1 Flash Lite 사용 (preview 꼬리표 제거 완료) */
+const MODEL_NAME = "gemini-3.1-flash-lite";
 
 /** 🌟 모든 카테고리에 대해 검열을 끄는 설정 (원본 보존) */
 const safetySettings = [
@@ -210,13 +210,12 @@ Respond ONLY with JSON. No markdown. No explanation.`;
   return makeRequest(apiKey);
 }
 
-/** 3️⃣ 🌟 대화 기록 요약 (메모리 압축 기능 - 최신 모델 적용) */
+/** 3️⃣ 대화 기록 요약 (메모리 압축 기능 - 최신 모델 적용) */
 export async function summarizeHistory(
   messages: { role: string; content: string }[], 
   currentSummary: string, 
   apiKey: string
 ): Promise<string> {
-  // 🌟 요약 시에도 3.1 Flash Lite 모델 사용
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${apiKey}`;
   
   const historyText = messages.map(m => `${m.role}: ${m.content}`).join("\n");
@@ -238,7 +237,7 @@ export async function summarizeHistory(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
         contents: [{ parts: [{ text: prompt }] }],
-        safetySettings, // 🌟 요약 중 검열 방지를 위해 원본 safetySettings 적용
+        safetySettings, 
       })
     });
     const data = await response.json();
@@ -247,4 +246,66 @@ export async function summarizeHistory(
     console.error("요약 실패:", e);
     return currentSummary;
   }
+}
+
+/** 4️⃣ 🌟 대화에서 조연(NPC) 자동 추출 기능 추가 */
+export async function extractCharactersFromHistory(
+  history: string,
+  modelName: string, 
+  fallbackApiKey: string 
+): Promise<{name: string; persona: string}[]> {
+  const { getNextKey, rotateKey } = useApiKeyStore.getState();
+  let apiKey = fallbackApiKey || getNextKey();
+
+  const makeRequest = async (key: string): Promise<{name: string; persona: string}[]> => {
+    if (!key) throw new Error("No Gemini API key available.");
+
+    const systemPrompt = `You are a roleplay assistant. Read the recent chat history and extract any NEW supporting characters, NPCs, or extras that were mentioned or briefly interacted with.
+DO NOT include the main user or the main character.
+Return ONLY a valid JSON array of objects, where each object has:
+- "name": The character's name (invent a fitting name if they were only described by their job/role, e.g., "주점 주인").
+- "persona": A short 1-2 sentence Korean description of their personality, job, and how they acted in the history.
+If no new characters are found, return an empty array [].
+Respond ONLY with JSON. No markdown.`;
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `System Instruction: ${systemPrompt}\n\nRecent History:\n${history}` }] }],
+        generationConfig: {
+          temperature: 0.7,
+          response_mime_type: "application/json",
+        },
+        safetySettings,
+      }),
+    });
+
+    if (response.status === 429) {
+      rotateKey();
+      const newApiKey = useApiKeyStore.getState().getNextKey();
+      if (newApiKey === key) throw new Error("All available Gemini API keys are rate-limited.");
+      return makeRequest(newApiKey);
+    }
+
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "[]";
+
+    try {
+      const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.error("NPC JSON parse error:", e, content);
+      return [];
+    }
+  };
+
+  return makeRequest(apiKey);
 }
