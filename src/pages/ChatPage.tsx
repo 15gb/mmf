@@ -506,6 +506,9 @@ const ChatPage = () => {
   const handleExtractNPCs = async () => {
     setIsExtracting(true);
     const toastId = toast.loading("조연 찾는 중...");
+    console.log("=== handleExtractNPCs 호출 ===");
+    console.log("현재 큐 길이:", npcQueueRef.current.length);
+    console.log("현재 인덱스:", npcIndexRef.current);
 
     try {
       // 1. 큐가 비어있으면 새로 추출
