@@ -1,6 +1,18 @@
+/**
+ * ChatPage.tsx
+ * * 주요 기능:
+ * 1. 대화 기록 관리 및 실시간 채팅 인터페이스
+ * 2. 조연 자동 추출 및 순환 호출 (Rotation Logic)
+ * 3. 이미지 생성 및 대화 저장/불러오기
+ * 4. 참여자 기억 설정 관리
+ */
+
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users, Edit3, UserPlus, BookOpen, Search, AlignLeft } from "lucide-react";
+import { 
+  Send, Settings, Trash2, Loader2, X, Scissors, Save, List, 
+  Star, ImageIcon, Users, Edit3, UserPlus, BookOpen, Search, AlignLeft 
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
@@ -9,8 +21,12 @@ import { toast } from "sonner";
 import { generateImage, encodeImageMessage, decodeImageMessage } from "@/lib/image-api";
 import ImageCard from "@/components/ImageCard";
 
+// 메시지 분할을 위한 특수 마커
 const SPLIT_MARKER = "[[SPLIT]]";
 
+/**
+ * 메시지 객체를 UI 렌더링을 위한 개별 블록 단위로 파싱하는 함수
+ */
 const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   if (msg.role === "user") {
     const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*");
@@ -26,6 +42,7 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   const paragraphs = msg.content.split(/\n{1,}/).filter((p: string) => p.trim());
 
   paragraphs.forEach((p: string, idx: number) => {
+    // [캐릭터명] 형태의 대사 확인
     const match = p.match(/^\*\*\[(.*?)\]\*\*\s*(.*)/);
     if (match) {
       const charName = match[1].trim();
@@ -39,12 +56,14 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
       return;
     }
 
+    // 시스템 메시지 확인
     const sysMatch = p.match(/^(시스템|System)\s*:\s*(.*)/i);
     if (sysMatch) {
       blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: sysMatch[2].trim() });
       return;
     }
 
+    // 행동 묘사 확인
     const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"') && !p.includes('“');
     const isParenActionOnly = p.trim().startsWith("(") && p.trim().endsWith(")") && !p.includes('"') && !p.includes('“');
     
@@ -61,6 +80,9 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   return blocks;
 };
 
+/**
+ * 텍스트 내 강조 표현(별표, 괄호)을 렌더링하는 헬퍼 함수
+ */
 const renderRichText = (text: string) => {
   const parts = text.split(/(\*[^*]+\*|\([^)]+\))/g);
   return parts.map((part, i) => {
@@ -83,6 +105,9 @@ const renderRichText = (text: string) => {
   });
 };
 
+/**
+ * 개별 메시지 컴포넌트
+ */
 const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
   const imgData = decodeImageMessage(msg.content);
   if (imgData) {
@@ -98,7 +123,6 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
   return (
     <div className="flex flex-col w-full mb-1 space-y-1" onContextMenu={(e) => onContextMenu(e, msg.id)}>
       {blocks.map((block, idx) => {
-        // 🌟 수정됨: 나레이션 배경을 대화 말풍선 배경(bg-card)과 똑같이 변경하여 선명하게 만듦
         if (block.type === 'narration') {
           return (
             <div key={block.id} className="flex justify-start w-full relative z-10 my-1">
@@ -149,6 +173,9 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
   );
 });
 
+/**
+ * 채팅 페이지 메인 컴포넌트
+ */
 const ChatPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -163,8 +190,9 @@ const ChatPage = () => {
   const { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
-  const [npcQueue, setNpcQueue] = useState<{name: string, persona: string}[]>([]); // 추출된 조연 리스트 저장
-  const [npcIndex, setNpcIndex] = useState(0); // 몇 번째 조연을 추출할지 기록
+  // [조연 추출 순환 시스템 상태]
+  const [npcQueue, setNpcQueue] = useState<{name: string, persona: string}[]>([]);
+  const [npcIndex, setNpcIndex] = useState(0);
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -189,10 +217,12 @@ const ChatPage = () => {
   });
   const [showParticipantModal, setShowParticipantModal] = useState(false);
 
+  // 자동 저장 등을 위한 ref
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
   const autoSaveRef = useRef(autoSaveConversation);
 
+  // 로컬 스토리지 동기화
   useEffect(() => {
     localStorage.setItem("active-extras", JSON.stringify(activeExtras));
   }, [activeExtras]);
@@ -203,6 +233,7 @@ const ChatPage = () => {
     autoSaveRef.current = autoSaveConversation;
   }, [messages, settings, autoSaveConversation]);
 
+  // 대화 불러오기 및 초기화 로직
   useEffect(() => {
     const loadId = searchParams.get("load");
     const isNew = searchParams.get("new");
@@ -222,16 +253,19 @@ const ChatPage = () => {
     }
   }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages, updateSettings]);
 
+  // 스크롤 자동 이동
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  // 첫 인사 메시지 설정
   useEffect(() => {
     if (messages.length === 0 && settings.charGreeting) {
       addMessage({ role: "assistant", content: settings.charGreeting });
     }
   }, [settings.charGreeting, addMessage, messages.length]);
 
+  // 컨텍스트 메뉴 닫기 핸들러
   useEffect(() => {
     const handleClickOutside = () => setContextMenu(null);
     if (contextMenu) {
@@ -240,6 +274,7 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
+  // 자동 저장 이벤트 리스너
   useEffect(() => {
     const handleAutoSave = () => {
       if (messagesRef.current.length > 0) {
@@ -263,6 +298,7 @@ const ChatPage = () => {
     };
   }, []);
 
+  // 저장 로직
   const getDefaultSaveTitle = useCallback(() => {
     return (settings.charName || "새 대화").trim().slice(0, 30);
   }, [settings.charName]);
@@ -311,6 +347,7 @@ const ChatPage = () => {
     }
   }, [messages, currentConvId, allConversations, saveConversation, getDefaultSaveTitle]);
 
+  // 메시지 전송 로직
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -483,53 +520,60 @@ const ChatPage = () => {
     }
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
+  /**
+   * [수정됨] 조연 자동 추출 및 순환 로직
+   * 1. 큐가 비었거나 초기 상태면 대화 기록에서 조연 후보를 추출
+   * 2. 추출된 후보가 있다면 큐에 저장하고 첫 번째부터 순차적으로 추가
+   * 3. 인덱스를 증가시켜 다음 호출 시 다음 조연을 선택
+   * 4. 큐의 끝에 도달하면 다시 0으로 초기화
+   */
   const handleExtractNPCs = async () => {
-  setIsExtracting(true);
-  const toastId = toast.loading("조연 찾는 중...");
-  
-  try {
-    let currentQueue = npcQueue;
-    let currentIndex = npcIndex;
+    setIsExtracting(true);
+    const toastId = toast.loading("조연 찾는 중...");
+    
+    try {
+      let currentQueue = npcQueue;
+      let currentIndex = npcIndex;
 
-    // 1. 리스트가 비었거나, 모든 조연을 다 뽑았다면 새로 추출
-    if (currentQueue.length === 0 || currentIndex >= currentQueue.length) {
-      const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
-      const api = await import("@/lib/gemini-api");
-      const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
-      
-      if (npcs.length === 0) {
-        toast.info("새로 추가할 조연이 없습니다.", { id: toastId });
-        setIsExtracting(false);
-        return;
+      // 1. 큐가 비었거나 이전 큐를 다 소진했다면 새로 추출
+      if (currentQueue.length === 0 || currentIndex >= currentQueue.length) {
+        const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
+        const api = await import("@/lib/gemini-api");
+        const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
+        
+        if (npcs.length === 0) {
+          toast.info("새로 추가할 조연이 없습니다.", { id: toastId });
+          setIsExtracting(false);
+          return;
+        }
+        
+        currentQueue = npcs;
+        currentIndex = 0; // 새로 추출했으므로 인덱스 초기화
+        setNpcQueue(npcs);
       }
+
+      // 2. 현재 인덱스(npcIndex)에 해당하는 캐릭터를 추가
+      const target = currentQueue[currentIndex];
+      addSupportingCharacter({ 
+        name: target.name, 
+        persona: target.persona, 
+        avatar: "", 
+        personal_memory: "" 
+      });
       
-      currentQueue = npcs;
-      currentIndex = 0;
-      setNpcQueue(npcs);
-      setNpcIndex(0);
+      toast.success(`${target.name} 캐릭터가 추가되었습니다!`, { id: toastId });
+      
+      // 3. 인덱스 업데이트 (다음 순번으로 이동, 리스트 끝이면 순환)
+      const nextIndex = (currentIndex + 1) % currentQueue.length;
+      setNpcIndex(nextIndex);
+
+    } catch (e: any) {
+      console.error(e);
+      toast.error(`추출 실패: ${e.message}`, { id: toastId });
+    } finally {
+      setIsExtracting(false);
     }
-
-    // 2. 현재 인덱스의 조연을 화면에 추가
-    const target = currentQueue[currentIndex];
-    addSupportingCharacter({ 
-      name: target.name, 
-      persona: target.persona, 
-      avatar: "", 
-      personal_memory: "" 
-    });
-    
-    toast.success(`${target.name} 캐릭터가 추가되었습니다!`, { id: toastId });
-    
-    // 3. 인덱스 증가
-    setNpcIndex(currentIndex + 1);
-
-  } catch (e: any) {
-    console.error(e);
-    toast.error(`추출 실패: ${e.message}`, { id: toastId });
-  } finally {
-    setIsExtracting(false);
-  }
-};
+  };
 
   const saveMemory = async () => {
     if (!memoryModal) return;
@@ -652,25 +696,6 @@ const ChatPage = () => {
               <button onClick={handleExtractNPCs} disabled={isExtracting} className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium bg-muted text-foreground rounded-xl hover:bg-muted/80 transition-all border border-border">
                 {isExtracting ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} 대화에서 조연 자동 찾기
               </button>
-              
-              {extractedNPCs.length > 0 && (
-                <div className="bg-background border border-border rounded-lg p-2 max-h-32 overflow-y-auto space-y-1 mt-2">
-                  {extractedNPCs.map((npc, idx) => (
-                    <div key={idx} className="flex justify-between items-center text-xs p-1.5 bg-muted rounded">
-                      <div className="flex flex-col truncate pr-2">
-                        <span className="font-bold truncate">{npc.name}</span>
-                      </div>
-                      <button onClick={() => { 
-                          addSupportingCharacter({ name: npc.name, persona: npc.persona, avatar: "", personal_memory: "" }); 
-                          setExtractedNPCs(prev => prev.filter((_, i) => i !== idx));
-                          toast.success(`${npc.name} 추가됨!`); 
-                        }} className="px-2 py-1 bg-primary text-primary-foreground rounded text-[10px] shrink-0">
-                        추가
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
             
             <div className="flex justify-end pt-2 shrink-0">
