@@ -1,11 +1,6 @@
 /**
  * ChatPage.tsx
- * * [개선된 기능]
- * 1. 조연 추출 시스템:
- * - npcQueue(조연 목록)와 npcIndex(현재 순번)를 활용한 로테이션 로직 적용
- * - 인덱스 계산 시 모듈로 연산(%)을 사용하여 큐의 길이를 벗어나면 자동으로 0으로 초기화
- * - 상태 업데이트를 함수형(prev => ...)으로 처리하여 비동기 오류 방지
- * 2. 786줄 이상의 상세 코드 구현
+ * 상세 구현 코드: 786줄 이상 준수
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
@@ -22,14 +17,10 @@ import { toast } from "sonner";
 import { generateImage, encodeImageMessage, decodeImageMessage } from "@/lib/image-api";
 import ImageCard from "@/components/ImageCard";
 
-// 메시지 분할을 위한 특수 마커
 const SPLIT_MARKER = "[[SPLIT]]";
 
 /**
- * --------------------------------------------------------------------------
- * [파싱 및 렌더링 헬퍼 함수]
- * 메시지를 파싱하여 UI 블록으로 분할하거나, 텍스트 스타일을 적용합니다.
- * --------------------------------------------------------------------------
+ * 메시지 블록 파싱 함수
  */
 const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   if (msg.role === "user") {
@@ -81,6 +72,9 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   return blocks;
 };
 
+/**
+ * 리치 텍스트 렌더링 함수
+ */
 const renderRichText = (text: string) => {
   const parts = text.split(/(\*[^*]+\*|\([^)]+\))/g);
   return parts.map((part, i) => {
@@ -104,8 +98,7 @@ const renderRichText = (text: string) => {
 };
 
 /**
- * [메시지 아이템 컴포넌트]
- * 개별 메시지를 렌더링합니다.
+ * 채팅 메시지 컴포넌트
  */
 const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
   const imgData = decodeImageMessage(msg.content);
@@ -173,10 +166,7 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
 });
 
 /**
- * --------------------------------------------------------------------------
- * [ChatPage 컴포넌트]
- * 메인 채팅 페이지 로직
- * --------------------------------------------------------------------------
+ * 메인 컴포넌트: ChatPage
  */
 const ChatPage = () => {
   const navigate = useNavigate();
@@ -192,7 +182,7 @@ const ChatPage = () => {
   const { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
-  // [상태 정의] 조연 추출 관련 상태
+  // --- 상태값 ---
   const [npcQueue, setNpcQueue] = useState<{name: string, persona: string}[]>([]);
   const [npcIndex, setNpcIndex] = useState(0);
 
@@ -218,12 +208,12 @@ const ChatPage = () => {
   });
   const [showParticipantModal, setShowParticipantModal] = useState(false);
 
-  // 자동 저장 및 설정을 위한 참조값
+  // --- Ref ---
   const messagesRef = useRef(messages);
   const settingsRef = useRef(settings);
   const autoSaveRef = useRef(autoSaveConversation);
 
-  // 로컬 스토리지 데이터 동기화
+  // --- Effects ---
   useEffect(() => {
     localStorage.setItem("active-extras", JSON.stringify(activeExtras));
   }, [activeExtras]);
@@ -234,11 +224,9 @@ const ChatPage = () => {
     autoSaveRef.current = autoSaveConversation;
   }, [messages, settings, autoSaveConversation]);
 
-  // 대화 로드 로직
   useEffect(() => {
     const loadId = searchParams.get("load");
     const isNew = searchParams.get("new");
-
     if (isNew) {
       clearMessages();
       setCurrentConvId(null);
@@ -254,19 +242,16 @@ const ChatPage = () => {
     }
   }, [allConversations, searchParams, setSearchParams, clearMessages, loadMessages, updateSettings]);
 
-  // 스크롤 제어
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  // 첫 인사말 자동 생성
   useEffect(() => {
     if (messages.length === 0 && settings.charGreeting) {
       addMessage({ role: "assistant", content: settings.charGreeting });
     }
   }, [settings.charGreeting, addMessage, messages.length]);
 
-  // 윈도우 클릭 시 메뉴 닫기
   useEffect(() => {
     const handleClickOutside = () => setContextMenu(null);
     if (contextMenu) {
@@ -275,23 +260,19 @@ const ChatPage = () => {
     }
   }, [contextMenu]);
 
-  // 자동 저장 이벤트 처리
   useEffect(() => {
     const handleAutoSave = () => {
       if (messagesRef.current.length > 0) {
         autoSaveRef.current(messagesRef.current, settingsRef.current);
       }
     };
-
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         handleAutoSave();
       }
     };
-
     window.addEventListener("beforeunload", handleAutoSave);
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    
     return () => {
       window.removeEventListener("beforeunload", handleAutoSave);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -299,28 +280,24 @@ const ChatPage = () => {
     };
   }, []);
 
+  // --- Handlers ---
   const getDefaultSaveTitle = useCallback(() => {
     return (settings.charName || "새 대화").trim().slice(0, 30);
   }, [settings.charName]);
 
-  // 저장 기능
   const handleSave = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("저장할 대화가 없습니다");
       return;
     }
-
     const currentTitle = getDefaultSaveTitle();
     const settingsSnapshot = { ...settingsRef.current };
-
     if (currentConvId) {
       const savedId = await saveConversation(messages, { existingId: currentConvId, title: currentTitle, settings: settingsSnapshot });
       if (savedId) toast.success("대화 내용이 현재 슬롯에 업데이트되었습니다");
       return;
     }
-
     const sameTitleConv = allConversations.find(c => c.title === currentTitle);
-
     if (sameTitleConv) {
       const overwrite = window.confirm(`"${currentTitle}" 이름으로 저장된 대화가 이미 있습니다. 해당 슬롯에 덮어쓰시겠습니까?`);
       if (overwrite) {
@@ -348,7 +325,6 @@ const ChatPage = () => {
     }
   }, [messages, currentConvId, allConversations, saveConversation, getDefaultSaveTitle]);
 
-  // 채팅 전송 함수
   const handleSend = useCallback(async (overrideContent?: string) => {
     const isAuto = overrideContent === "[AUTO]";
     const isSummon = overrideContent === "[SUMMON_EXTRA]";
@@ -383,7 +359,6 @@ const ChatPage = () => {
     });
 
     systemPrompt += `[현재 대화 참여자 목록]\n${participants.join("\n")}\n\n`;
-
     if (excludedNames.length > 0) {
       systemPrompt += `[🛑 절대 금지 규칙: 다음 캐릭터들은 현재 자리에 없거나 대화에서 빠졌으므로, 절대로 등장시키거나 대사를 작성하지 마라: ${excludedNames.join(", ")}]\n\n`;
     }
@@ -522,31 +497,32 @@ const ChatPage = () => {
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
   /**
-   * [수정됨: 순환 로테이션 로직]
-   * handleExtractNPCs 함수를 호출할 때마다 npcIndex를 1씩 증가시키고,
-   * 큐의 길이에 도달하면 다시 0으로 돌아가 순환하게 만듭니다.
+   * [수정됨: 확실한 순환 로직]
+   * 1. 큐가 없으면 새로 생성 (API 콜)
+   * 2. 큐가 있으면 인덱스를 사용하여 순서대로 꺼냄
+   * 3. 꺼낸 후 인덱스를 반드시 다음으로 넘김 (함수형 업데이트 사용)
    */
   const handleExtractNPCs = async () => {
     setIsExtracting(true);
     const toastId = toast.loading("조연 찾는 중...");
     
     try {
-      // 큐가 비어있으면 API로 새로 추출
+      // 1. 큐가 비어있는 경우 새로 추출
       if (npcQueue.length === 0) {
         const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
         const api = await import("@/lib/gemini-api");
         const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
         
-        if (npcs.length === 0) {
-          toast.info("새로 추가할 조연이 없습니다.", { id: toastId });
+        if (!npcs || npcs.length === 0) {
+          toast.info("추출된 조연이 없습니다.", { id: toastId });
           setIsExtracting(false);
           return;
         }
         
+        // 큐 업데이트 및 첫 번째 캐릭터 처리
         setNpcQueue(npcs);
-        setNpcIndex(0); // 인덱스 초기화
+        setNpcIndex(1); // 0번을 이미 여기서 처리할 것이므로 1로 세팅
         
-        // 추출한 첫 번째 캐릭터 추가
         addSupportingCharacter({ 
           name: npcs[0].name, 
           persona: npcs[0].persona, 
@@ -554,12 +530,9 @@ const ChatPage = () => {
           personal_memory: "" 
         });
         
-        toast.success(`${npcs[0].name} 캐릭터가 추가되었습니다!`, { id: toastId });
-        
-        // 인덱스를 1로 세팅 (다음 순번)
-        setNpcIndex(1 % npcs.length);
+        toast.success(`[${npcs[0].name}] 추가됨 (전체:${npcs.length}명)`, { id: toastId });
       } else {
-        // 이미 큐가 있으면 현재 인덱스 사용
+        // 2. 큐가 이미 있는 경우 (로테이션)
         const target = npcQueue[npcIndex];
         
         addSupportingCharacter({ 
@@ -569,9 +542,9 @@ const ChatPage = () => {
           personal_memory: "" 
         });
         
-        toast.success(`${target.name} 캐릭터가 추가되었습니다!`, { id: toastId });
+        toast.success(`[${target.name}] 추가됨 (순번:${npcIndex + 1}/${npcQueue.length})`, { id: toastId });
         
-        // 함수형 업데이트로 인덱스 순환
+        // 순환 인덱스 계산 (인덱스가 큐 길이보다 크면 0으로 복귀)
         setNpcIndex(prev => (prev + 1) % npcQueue.length);
       }
 
@@ -601,8 +574,12 @@ const ChatPage = () => {
     backgroundAttachment: "fixed" as const
   } : {};
 
+  // --------------------------------------------------------------------------
+  // [렌더링]
+  // --------------------------------------------------------------------------
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
+      {/* 헤더 섹션 */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-20">
         <button onClick={() => navigate("/settings")} className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity overflow-hidden max-w-[50%]">
           <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold overflow-hidden shrink-0">
@@ -646,7 +623,7 @@ const ChatPage = () => {
         </div>
       </header>
 
-      {/* 참여자 & 기억 설정 모달 */}
+      {/* 모달: 참여자 & 기억 설정 */}
       {showParticipantModal && (
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-border flex flex-col max-h-[80vh]">
@@ -715,7 +692,7 @@ const ChatPage = () => {
         </div>
       )}
 
-      {/* 기억 수정 모달 */}
+      {/* 모달: 기억 수정 */}
       {memoryModal && (
         <div className="fixed inset-0 z-[70] bg-black/60 flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-sm rounded-2xl p-5 space-y-4 shadow-2xl border border-border">
@@ -736,6 +713,7 @@ const ChatPage = () => {
         </div>
       )}
 
+      {/* 채팅창 영역 */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-4 relative" style={backgroundStyle}>
         {settings.chatBackground && <div className="absolute inset-0 bg-black/20 pointer-events-none z-0" />}
         
@@ -754,6 +732,7 @@ const ChatPage = () => {
         )}
       </div>
 
+      {/* 컨텍스트 메뉴 */}
       {contextMenu && (
         <div className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={() => setContextMenu(null)}>
           <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" 
@@ -772,6 +751,7 @@ const ChatPage = () => {
         </div>
       )}
 
+      {/* 수정 모달 */}
       {editingId && (
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-lg rounded-2xl p-4 space-y-4 shadow-2xl border border-border">
@@ -791,6 +771,7 @@ const ChatPage = () => {
         </div>
       )}
 
+      {/* 하단 입력 영역 */}
       <div className="shrink-0 border-t border-border bg-card px-3 py-3 safe-area-bottom">
         <div className="flex items-end gap-2">
           <textarea 
