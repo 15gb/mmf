@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import ImageUploadField from "@/components/ImageUploadField";
 import CharacterSearch from "@/components/CharacterSearch";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
-// 🌟 동적 임포트 에러 해결을 위해 extractCharactersFromHistory를 상단에서 미리 안전하게 불러옵니다.
 import { searchWorld, extractCharactersFromHistory } from "@/lib/gemini-api";
 import {
   AlertDialog,
@@ -21,6 +20,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+
+// ✅ 모듈 스코프 — 리렌더링과 무관하게 유지
+const _extractedNpcs: { name: string; persona: string }[] = [];
+let _extractNpcIndex = 0;
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section className="space-y-3">
@@ -151,40 +154,58 @@ const SettingsPage = () => {
     }
   };
 
-  // 🌟 최근 대화에서 조연 정보 추출 로직 (에러 디버깅 강화)
+  /**
+   * ✅ [수정] 모듈 스코프 _extractedNpcs / _extractNpcIndex 사용
+   * - 첫 클릭: API 호출 후 큐에 저장, 0번 인물 적용
+   * - 이후 클릭: API 재호출 없이 다음 인물 순환 적용
+   * - 큐를 다 쓰면 0번으로 돌아옴
+   */
   const handleExtractNPC = async (charId: string) => {
     if (messages.length === 0) {
       toast.error("현재 대화 기록이 없습니다. 먼저 채팅방에서 대화를 진행해주세요.");
       return;
     }
-    
+
     setIsExtractingId(charId);
     const toastId = toast.loading("최근 대화에서 조연을 분석하고 있습니다...");
-    
+
     try {
-      const history = messages.slice(-15).map(m => `${m.role === "user" ? "User" : "AI"}: ${m.content}`).join("\n");
-      
-      // 정적 임포트된 함수 직접 사용
-      const npcs = await extractCharactersFromHistory(
-        history, 
-        form.selectedModel || "gemini-3.1-flash-lite", 
-        form.geminiApiKey || ""
-      );
-      
-      if (npcs && npcs.length > 0) {
-        const npc = npcs[0]; 
-        handleAutoFillSupporting(charId, { name: npc.name, persona: npc.persona });
-        toast.success(`'${npc.name}' 정보를 성공적으로 추출했습니다!`, { id: toastId });
-        
-        if (npcs.length > 1) {
-          toast.info(`총 ${npcs.length}명의 인물이 발견되어 첫 번째 인물 정보로 채웠습니다.`, { duration: 4000 });
+      // 1. 큐가 비어있으면 API 호출
+      if (_extractedNpcs.length === 0) {
+        const history = messages.slice(-15).map(m => `${m.role === "user" ? "User" : "AI"}: ${m.content}`).join("\n");
+
+        const npcs = await extractCharactersFromHistory(
+          history,
+          form.selectedModel || "gemini-3.1-flash-lite",
+          form.geminiApiKey || ""
+        );
+
+        if (!npcs || npcs.length === 0) {
+          toast.info("최근 대화에서 새로운 조연 인물을 찾지 못했습니다.", { id: toastId });
+          setIsExtractingId(null);
+          return;
         }
-      } else {
-        toast.info("최근 대화에서 새로운 조연 인물을 찾지 못했습니다.", { id: toastId });
+
+        // 모듈 변수에 저장
+        _extractedNpcs.length = 0;
+        _extractedNpcs.push(...npcs);
+        _extractNpcIndex = 0;
       }
+
+      // 2. 현재 인덱스 인물 적용
+      const npc = _extractedNpcs[_extractNpcIndex];
+      handleAutoFillSupporting(charId, { name: npc.name, persona: npc.persona });
+
+      toast.success(
+        `'${npc.name}' 정보 적용됨 (${_extractNpcIndex + 1}/${_extractedNpcs.length}명)`,
+        { id: toastId }
+      );
+
+      // 3. 다음 인덱스로 (순환)
+      _extractNpcIndex = (_extractNpcIndex + 1) % _extractedNpcs.length;
+
     } catch (error: any) {
       console.error("추출 에러 상세:", error);
-      // 어떤 원인으로 실패했는지 상세한 에러 메시지를 띄워줍니다.
       toast.error(`조연 추출 실패: ${error.message || "알 수 없는 에러가 발생했습니다."}`, { id: toastId });
     } finally {
       setIsExtractingId(null);
@@ -243,7 +264,13 @@ const SettingsPage = () => {
           <div className="space-y-4">
             {form.supportingCharacters.map((char) => (
               <div key={char.id} className="p-4 pt-10 rounded-xl bg-muted/30 border border-border relative space-y-3">
-                <button onClick={() => handleRemoveCharacter(char.id)} className="absolute top-2 right-2 p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-colors z-10" title="조연 삭제"><Trash size={16} /></button>
+                <button
+                  onClick={() => handleRemoveCharacter(char.id)}
+                  className="absolute top-2 right-2 p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-colors z-10"
+                  title="조연 삭제"
+                >
+                  <Trash size={16} />
+                </button>
                 
                 <div className="mb-3 space-y-2">
                   <CharacterSearch onSelect={(data) => { handleAutoFillSupporting(char.id, data); toast.success("조연 정보가 자동으로 채워졌습니다!"); }} />
@@ -265,6 +292,37 @@ const SettingsPage = () => {
             <button onClick={handleAddCharacter} className="w-full py-3 rounded-xl border-2 border-dashed border-border text-muted-foreground flex items-center justify-center gap-2 hover:bg-muted/50 hover:text-foreground transition-all">
               <Plus size={18} /> 조연 추가하기
             </button>
+          </div>
+        </Section>
+
+        {/* ✅ 참여자 & 기억 설정 섹션 — 삭제 버튼 추가 */}
+        <Section title="참여자 & 기억 설정">
+          <p className="text-xs text-muted-foreground">조연을 삭제하면 대화 참여자 목록에서도 제거됩니다.</p>
+          <div className="space-y-2">
+            {form.supportingCharacters.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-3">추가된 조연이 없습니다.</p>
+            ) : (
+              form.supportingCharacters.map((char) => (
+                <div key={char.id} className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border border-border/50">
+                  <div className="flex flex-col overflow-hidden">
+                    <span className="text-sm font-medium truncate">{char.name || "(이름 없음)"}</span>
+                    <span className="text-[11px] text-muted-foreground truncate">{char.persona || "(설정 없음)"}</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (window.confirm(`'${char.name || "이 조연"}' 을(를) 삭제할까요?`)) {
+                        handleRemoveCharacter(char.id);
+                        toast.success("조연이 삭제되었습니다.");
+                      }
+                    }}
+                    className="ml-3 p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-colors shrink-0"
+                    title="삭제"
+                  >
+                    <Trash size={15} />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         </Section>
 
