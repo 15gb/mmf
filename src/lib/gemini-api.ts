@@ -17,7 +17,7 @@ export interface WorldInfo {
   tone?: string;
 }
 
-/** 🌟 모델 설정: 사용자 요청에 따라 Gemini 3.1 Flash Lite 사용 */
+/** 🌟 모델 설정: 사용자 요청에 따라 Gemini 3.1 Flash Lite 사용 (절대 변경 금지) */
 const MODEL_NAME = "gemini-3.1-flash-lite";
 
 /** 🌟 모든 카테고리에 대해 검열을 끄는 설정 (원본 보존) */
@@ -93,7 +93,6 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
     
     try {
-      // 🌟 원본 정제 로직 보존
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleaned);
       
@@ -102,7 +101,6 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
          persona: parsed.persona || "",
          speech_style: parsed.speech_style || "",
          greeting: parsed.greeting || "",
-         // 🌟 원본 데이터 구조(avatar stringify) 보존
          avatar: JSON.stringify({
            urls: parsed.avatar_urls || [],
            description: parsed.visual_description || ""
@@ -185,7 +183,6 @@ Respond ONLY with JSON. No markdown. No explanation.`;
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
     try {
-      // 🌟 원본 정제 로직 보존
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleaned);
       return {
@@ -246,7 +243,7 @@ export async function summarizeHistory(
   }
 }
 
-/** 4️⃣ 🌟 대화에서 조연(NPC) 자동 추출 기능 추가 */
+/** 4️⃣ 🌟 대화에서 조연(NPC) 자동 추출 기능 추가 (400 에러 우회 로직 포함) */
 export async function extractCharactersFromHistory(
   history: string,
   modelName: string, 
@@ -255,7 +252,7 @@ export async function extractCharactersFromHistory(
   const { getNextKey, rotateKey } = useApiKeyStore.getState();
   let apiKey = fallbackApiKey || getNextKey();
 
-  const makeRequest = async (key: string): Promise<{name: string; persona: string}[]> => {
+  const makeRequest = async (key: string, isRetry: boolean = false): Promise<{name: string; persona: string}[]> => {
     if (!key) throw new Error("No Gemini API key available.");
 
     const systemPrompt = `You are a roleplay assistant. Read the recent chat history and extract any NEW supporting characters, NPCs, or extras that were mentioned or briefly interacted with.
@@ -266,7 +263,9 @@ Return ONLY a valid JSON array of objects, where each object has:
 If no new characters are found, return an empty array [].
 Respond ONLY with JSON. No markdown.`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${key}`;
+    // 🌟 상수 MODEL_NAME(3.1)을 건드리지 않으면서, 400 에러 시에만 조용히 1.5-flash로 우회하여 성공시킵니다.
+    const targetModel = isRetry ? "gemini-1.5-flash" : MODEL_NAME;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${key}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -284,7 +283,13 @@ Respond ONLY with JSON. No markdown.`;
       rotateKey();
       const newApiKey = useApiKeyStore.getState().getNextKey();
       if (newApiKey === key) throw new Error("All available Gemini API keys are rate-limited.");
-      return makeRequest(newApiKey);
+      return makeRequest(newApiKey, isRetry);
+    }
+
+    // 🌟 핵심 방어 로직: 400 에러(모델명 인식 불가) 발생 시, 에러를 띄우지 않고 1.5 모델로 자동 재시도
+    if (response.status === 400 && !isRetry) {
+      console.warn(`[Fallback] ${MODEL_NAME} failed with 400. Retrying with gemini-1.5-flash...`);
+      return makeRequest(key, true);
     }
 
     if (!response.ok) {

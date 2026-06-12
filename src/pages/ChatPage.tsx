@@ -11,7 +11,6 @@ import ImageCard from "@/components/ImageCard";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
-// 🌟 Zeta 스타일: 문장을 분석해서 나레이션과 대사 블록으로 쪼개는 함수
 const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   if (msg.role === "user") {
     const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*");
@@ -27,13 +26,11 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   const paragraphs = msg.content.split(/\n{1,}/).filter((p: string) => p.trim());
 
   paragraphs.forEach((p: string, idx: number) => {
-    // 1. **[캐릭터명]** 형태인지 먼저 검사
     const match = p.match(/^\*\*\[(.*?)\]\*\*\s*(.*)/);
     if (match) {
       const charName = match[1].trim();
       const textContent = match[2].trim();
       
-      // 🌟 [시스템] 인 경우 무조건 나레이션(검은 배경)으로 강제 변환
       if (charName === "시스템" || charName.toUpperCase() === "SYSTEM") {
         blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: textContent });
       } else {
@@ -42,14 +39,12 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
       return;
     }
 
-    // 2. 가끔 "시스템: ~" 형태로 나올 때를 대비한 방어 코드
     const sysMatch = p.match(/^(시스템|System)\s*:\s*(.*)/i);
     if (sysMatch) {
       blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: sysMatch[2].trim() });
       return;
     }
 
-    // 3. 일반적인 나레이션/대사 검사
     const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"') && !p.includes('“');
     const isParenActionOnly = p.trim().startsWith("(") && p.trim().endsWith(")") && !p.includes('"') && !p.includes('“');
     
@@ -66,9 +61,7 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   return blocks;
 };
 
-// 🌟 2번 기능: 별표(*...*)와 괄호(...) 행동 묘사를 모두 회색으로 칠해주는 함수
 const renderRichText = (text: string) => {
-  // 별표나 괄호로 감싸진 구간을 기준으로 텍스트를 나눕니다.
   const parts = text.split(/(\*[^*]+\*|\([^)]+\))/g);
   return parts.map((part, i) => {
     if (part.startsWith("*") && part.endsWith("*")) {
@@ -105,14 +98,14 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
   return (
     <div className="flex flex-col w-full mb-1 space-y-1" onContextMenu={(e) => onContextMenu(e, msg.id)}>
       {blocks.map((block, idx) => {
-        // 🌟 1번 기능: 나레이션 배경을 더 어둡게(bg-black/40) 변경하고 흐림 효과 추가
+        // 🌟 수정됨: 나레이션 배경을 대화 말풍선 배경(bg-card)과 똑같이 변경하여 선명하게 만듦
         if (block.type === 'narration') {
           return (
             <div key={block.id} className="flex justify-start w-full relative z-10 my-1">
               <div className="mr-3 mt-1.5 text-muted-foreground/50 shrink-0">
                 <AlignLeft size={16} />
               </div>
-              <div className="flex-1 bg-black/40 dark:bg-black/60 border border-border/20 rounded-2xl px-4 py-3 text-muted-foreground/90 italic leading-relaxed text-[15px] shadow-md backdrop-blur-sm">
+              <div className="flex-1 bg-card border border-border rounded-2xl px-4 py-3 text-muted-foreground italic leading-relaxed text-[15px] shadow-sm">
                 {block.text}
               </div>
             </div>
