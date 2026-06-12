@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash, Key, Eye, EyeOff, ImageIcon, Eraser, Bot } from "lucide-react";
+import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash, Key, Eye, EyeOff, ImageIcon, Eraser, Bot, Loader2, MessageSquare } from "lucide-react";
 import { useSettings, useConversations, useMessages, type AppSettings, type SupportingCharacter, type ExtraApiKey } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 import { generateUUID } from "@/lib/utils";
@@ -67,11 +67,14 @@ const SettingsPage = () => {
   const navigate = useNavigate();
   const { settings, setSettings, resetRPContent } = useSettings();
   const { allConversations, deleteConversation, showAutoSaves, setShowAutoSaves } = useConversations();
-  const { clearMessages } = useMessages();
+  const { messages, clearMessages } = useMessages();
   const { user, signOut } = useAuth();
   const [form, setForm] = useState<AppSettings>(settings);
   const [worldQuery, setWorldQuery] = useState("");
   const [isWorldSearching, setIsWorldSearching] = useState(false);
+  
+  // 🌟 조연 추출 상태 관리
+  const [isExtractingId, setIsExtractingId] = useState<string | null>(null);
 
   useEffect(() => {
     setForm(settings);
@@ -148,6 +151,44 @@ const SettingsPage = () => {
     }
   };
 
+  // 🌟 최근 대화에서 조연 정보 추출 로직
+  const handleExtractNPC = async (charId: string) => {
+    if (messages.length === 0) {
+      toast.error("현재 대화 기록이 없습니다. 채팅을 먼저 진행해주세요.");
+      return;
+    }
+    
+    setIsExtractingId(charId);
+    const toastId = toast.loading("최근 대화에서 조연을 분석하고 있습니다...");
+    
+    try {
+      const history = messages.slice(-15).map(m => `${m.role === "user" ? "User" : "AI"}: ${m.content}`).join("\n");
+      const api = await import("@/lib/gemini-api").catch(() => null);
+      
+      if (api && api.extractCharactersFromHistory) {
+        const npcs = await api.extractCharactersFromHistory(history, form.selectedModel || "gemini-3.1-flash-lite", form.geminiApiKey || "");
+        
+        if (npcs && npcs.length > 0) {
+          const npc = npcs[0]; // 제일 처음 발견된 조연 정보 사용
+          handleAutoFillSupporting(charId, { name: npc.name, persona: npc.persona });
+          toast.success(`'${npc.name}' 정보를 성공적으로 추출했습니다!`, { id: toastId });
+          
+          if (npcs.length > 1) {
+            toast.info(`총 ${npcs.length}명의 인물이 발견되어 첫 번째 인물 정보로 채웠습니다.`, { duration: 4000 });
+          }
+        } else {
+          toast.info("최근 대화에서 새로운 조연 인물을 찾지 못했습니다.", { id: toastId });
+        }
+      } else {
+        toast.error("API 함수를 불러올 수 없습니다.", { id: toastId });
+      }
+    } catch (error) {
+      toast.error("조연 추출에 실패했습니다.", { id: toastId });
+    } finally {
+      setIsExtractingId(null);
+    }
+  };
+
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-10">
@@ -201,9 +242,20 @@ const SettingsPage = () => {
             {form.supportingCharacters.map((char) => (
               <div key={char.id} className="p-4 pt-10 rounded-xl bg-muted/30 border border-border relative space-y-3">
                 <button onClick={() => handleRemoveCharacter(char.id)} className="absolute top-2 right-2 p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-colors z-10" title="조연 삭제"><Trash size={16} /></button>
-                <div className="mb-2">
+                
+                {/* 🌟 기존 캐릭터 검색 + 대화에서 추출 버튼 세트 */}
+                <div className="mb-3 space-y-2">
                   <CharacterSearch onSelect={(data) => { handleAutoFillSupporting(char.id, data); toast.success("조연 정보가 자동으로 채워졌습니다!"); }} />
+                  <button 
+                    onClick={() => handleExtractNPC(char.id)}
+                    disabled={isExtractingId === char.id}
+                    className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 text-sm font-medium transition-colors border border-primary/20"
+                  >
+                    {isExtractingId === char.id ? <Loader2 size={16} className="animate-spin" /> : <MessageSquare size={16} />}
+                    최근 대화에서 조연 정보 추출
+                  </button>
                 </div>
+                
                 <ImageUploadField label="조연 프로필 이미지" value={char.avatar} onChange={(v) => handleUpdateCharacter(char.id, "avatar", v)} />
                 <Field label="조연 이름" value={char.name} onChange={(v) => handleUpdateCharacter(char.id, "name", v)} placeholder="조연 이름" />
                 <Field label="조연 설정" value={char.persona} onChange={(v) => handleUpdateCharacter(char.id, "persona", v)} multiline placeholder="성격, 관계 등" />
@@ -232,7 +284,6 @@ const SettingsPage = () => {
           <Field label="상세 세계관" value={form.worldSetting} onChange={(v) => update("worldSetting", v)} multiline placeholder="시대상, 배경 설명" />
           <Field label="노트 (장기 기억)" value={form.note} onChange={(v) => update("note", v)} multiline placeholder="AI가 기억해야 할 특별한 사건이나 정보" />
           
-          {/* 🌟 챗 길이 강제 설정 추가 */}
           <Field 
             label="절대 규칙 (답변 길이 및 말투 강제)" 
             value={form.chatRule} 
@@ -254,7 +305,6 @@ const SettingsPage = () => {
                 <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Google)</option>
                 <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
                 <option value="command-r">Command R (Cohere)</option>
-                {/* 🌟 GPT-5 추가 */}
                 <option value="gpt-5">GPT-5 (GitHub Models 무료)</option>
               </select>
             </div>
@@ -287,7 +337,6 @@ const SettingsPage = () => {
                     >
                       <option value="Groq">Groq (Llama)</option>
                       <option value="Cohere">Cohere (Command R)</option>
-                      {/* 🌟 GitHub 키 항목 추가 */}
                       <option value="GitHub">GitHub (GPT-5용)</option>
                     </select>
 
