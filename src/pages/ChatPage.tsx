@@ -503,6 +503,7 @@ const ChatPage = () => {
    * 리렌더링/언마운트와 완전히 무관하게 값이 유지됨
    */
   const handleExtractNPCs = async () => {
+    console.log("▶ 클릭됨. _npcQueue.length =", _npcQueue.length, "_npcIndex =", _npcIndex);
     setIsExtracting(true);
     const toastId = toast.loading("조연 찾는 중...");
 
