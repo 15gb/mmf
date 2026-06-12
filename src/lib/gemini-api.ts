@@ -33,7 +33,7 @@ const safetySettings = [
 
 /** 🌟 디버깅 및 안전 통신 함수 (콤마 분리 로직 포함) */
 async function fetchWithDebug(endpoint: string, apiKey: string, body: any) {
-  // 🚨 [수정 완료] 콤마가 있으면 첫 번째 키만 추출
+  // 🚨 [필수 수정] 여러 키가 콤마로 묶여 들어올 경우, 첫 번째 키만 사용하도록 분리
   const rawKey = String(apiKey || "").trim();
   const cleanKey = rawKey.split(',')[0].trim();
   
@@ -213,6 +213,11 @@ export async function extractCharactersFromHistory(
   let initialKey = fallbackApiKey || getNextKey();
 
   const makeRequest = async (key: string, isRetry: boolean = false): Promise<{name: string; persona: string}[]> => {
+    const cleanKey = String(key || "").trim();
+    if (!cleanKey || cleanKey === "undefined" || cleanKey === "null") {
+      throw new Error("API 키가 없습니다.");
+    }
+
     const systemPrompt = `You are a roleplay assistant. Read the recent chat history and extract any NEW supporting characters, NPCs, or extras that were mentioned or briefly interacted with.
 DO NOT include the main user or the main character.
 Return ONLY a valid JSON array of objects, where each object has:
@@ -221,10 +226,11 @@ Return ONLY a valid JSON array of objects, where each object has:
 If no new characters are found, return an empty array [].
 Respond ONLY with JSON. No markdown.`;
 
+    // 🌟 3.1에서 400에러 시 1.5로 자동 우회
     const targetModel = isRetry ? BACKGROUND_SAFE_MODEL : MODEL_NAME;
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`;
 
-    const response = await fetchWithDebug(endpoint, key, {
+    const response = await fetchWithDebug(endpoint, cleanKey, {
       contents: [{ parts: [{ text: `System Instruction: ${systemPrompt}\n\nRecent History:\n${history}` }] }],
       generationConfig: { temperature: 0.7 },
       safetySettings,
@@ -236,9 +242,9 @@ Respond ONLY with JSON. No markdown.`;
     }
 
     if (!response.ok) {
-      // 🚨 400 에러 발생 시 우회 재시도
+      // 🚨 400 에러 발생 시 우회 재시도 로직
       if (!isRetry && response.status === 400) {
-        console.warn(`[DEBUG] 400 발생, ${BACKGROUND_SAFE_MODEL}로 우회 재시도...`);
+        console.warn(`[DEBUG] 400 에러 발생, ${BACKGROUND_SAFE_MODEL}로 우회 재시도...`);
         return makeRequest(key, true);
       }
       

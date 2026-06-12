@@ -163,6 +163,9 @@ const ChatPage = () => {
   const { messages, addMessage, editMessage, clearMessages, deleteMessage, deleteMessagesFrom, updateLastAssistant, loadMessages } = useMessages();
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
+  const [npcQueue, setNpcQueue] = useState<{name: string, persona: string}[]>([]); // 추출된 조연 리스트 저장
+  const [npcIndex, setNpcIndex] = useState(0); // 몇 번째 조연을 추출할지 기록
+
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -481,29 +484,52 @@ const ChatPage = () => {
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
   const handleExtractNPCs = async () => {
-    setIsExtracting(true);
-    const toastId = toast.loading("최근 대화에서 인물 찾는 중...");
-    try {
+  setIsExtracting(true);
+  const toastId = toast.loading("조연 찾는 중...");
+  
+  try {
+    let currentQueue = npcQueue;
+    let currentIndex = npcIndex;
+
+    // 1. 리스트가 비었거나, 모든 조연을 다 뽑았다면 새로 추출
+    if (currentQueue.length === 0 || currentIndex >= currentQueue.length) {
       const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
-      const api = await import("@/lib/gemini-api").catch(() => null);
+      const api = await import("@/lib/gemini-api");
+      const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
       
-      if (api && api.extractCharactersFromHistory) {
-        const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
-        setExtractedNPCs(npcs);
-        if(npcs.length > 0) {
-          toast.success(`${npcs.length}명의 캐릭터를 찾았습니다!`, { id: toastId });
-        } else {
-          toast.info("새로운 캐릭터를 찾지 못했습니다.", { id: toastId });
-        }
-      } else {
-        toast.error("API 함수가 준비되지 않았습니다. (gemini-api.ts 업데이트 필요)", { id: toastId });
+      if (npcs.length === 0) {
+        toast.info("새로 추가할 조연이 없습니다.", { id: toastId });
+        setIsExtracting(false);
+        return;
       }
-    } catch (e) {
-      toast.error("조연 추출에 실패했습니다.", { id: toastId });
-    } finally {
-      setIsExtracting(false);
+      
+      currentQueue = npcs;
+      currentIndex = 0;
+      setNpcQueue(npcs);
+      setNpcIndex(0);
     }
-  };
+
+    // 2. 현재 인덱스의 조연을 화면에 추가
+    const target = currentQueue[currentIndex];
+    addSupportingCharacter({ 
+      name: target.name, 
+      persona: target.persona, 
+      avatar: "", 
+      personal_memory: "" 
+    });
+    
+    toast.success(`${target.name} 캐릭터가 추가되었습니다!`, { id: toastId });
+    
+    // 3. 인덱스 증가
+    setNpcIndex(currentIndex + 1);
+
+  } catch (e: any) {
+    console.error(e);
+    toast.error(`추출 실패: ${e.message}`, { id: toastId });
+  } finally {
+    setIsExtracting(false);
+  }
+};
 
   const saveMemory = async () => {
     if (!memoryModal) return;
