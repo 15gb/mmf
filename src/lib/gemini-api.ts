@@ -34,8 +34,8 @@ export async function searchCharacter(query: string): Promise<CharacterInfo> {
   let apiKey = getNextKey();
 
   const makeRequest = async (key: string): Promise<CharacterInfo> => {
-    const cleanKey = key ? key.trim() : "";
-    if (!cleanKey) throw new Error("No Gemini API key available.");
+    const cleanKey = String(key || "").trim();
+    if (!cleanKey) throw new Error("API 키가 없습니다.");
 
     const systemPrompt = `You are a character database expert for anime, manga, games, and comics. When given a character name, return a JSON object with:
 - "name": the character's canonical Korean name (or original name if no Korean name exists)
@@ -47,15 +47,11 @@ export async function searchCharacter(query: string): Promise<CharacterInfo> {
 
 Respond ONLY with valid JSON. No markdown, no explanation.`;
 
-    // 🌟 URL 파라미터(?key=) 삭제
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": cleanKey // 🌟 헤더에 안전하게 키 삽입
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: `System Instruction: ${systemPrompt}\n\nUser Query: ${query}` }] }],
         generationConfig: { temperature: 0.7, topK: 40, topP: 0.95, maxOutputTokens: 1024 },
@@ -68,10 +64,7 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
       return makeRequest(useApiKeyStore.getState().getNextKey());
     }
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error?.message || `Gemini API error: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
 
     const data = await response.json();
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
@@ -79,7 +72,6 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
     try {
       const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
       const parsed = JSON.parse(cleaned);
-      
        return {
          name: parsed.name || query,
          persona: parsed.persona || "",
@@ -101,8 +93,8 @@ export async function searchWorld(query: string): Promise<WorldInfo> {
   let apiKey = getNextKey();
 
   const makeRequest = async (key: string): Promise<WorldInfo> => {
-    const cleanKey = key ? key.trim() : "";
-    if (!cleanKey) throw new Error("No Gemini API key available.");
+    const cleanKey = String(key || "").trim();
+    if (!cleanKey) throw new Error("API 키가 없습니다.");
 
     const systemPrompt = `You are a worldbuilding encyclopedia and RPG scenario designer.
 When given a world/setting keyword (anime/game/comic/novel setting or an original idea), return ONLY valid JSON with:
@@ -115,14 +107,11 @@ When given a world/setting keyword (anime/game/comic/novel setting or an origina
 
 Respond ONLY with JSON. No markdown. No explanation.`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": cleanKey
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: `System Instruction: ${systemPrompt}\n\nUser Query: ${query}` }] }],
         generationConfig: { temperature: 0.7, topK: 40, topP: 0.95, maxOutputTokens: 1024 },
@@ -135,10 +124,7 @@ Respond ONLY with JSON. No markdown. No explanation.`;
       return makeRequest(useApiKeyStore.getState().getNextKey());
     }
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error?.message || `Gemini API error: ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
 
     const data = await response.json();
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
@@ -168,8 +154,8 @@ export async function summarizeHistory(
   currentSummary: string, 
   apiKey: string
 ): Promise<string> {
-  const cleanKey = apiKey ? apiKey.trim() : "";
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent`;
+  const cleanKey = String(apiKey || "").trim();
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${encodeURIComponent(cleanKey)}`;
   
   const historyText = messages.map(m => `${m.role}: ${m.content}`).join("\n");
   const prompt = `
@@ -187,10 +173,7 @@ export async function summarizeHistory(
   try {
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "x-goog-api-key": cleanKey 
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
         contents: [{ parts: [{ text: prompt }] }],
         safetySettings, 
@@ -204,19 +187,20 @@ export async function summarizeHistory(
   }
 }
 
-/** 4️⃣ 🌟 조연(NPC) 자동 추출 기능 (키 헤더 안전 전송 및 강력 우회 탑재) */
+/** 4️⃣ 🌟 조연(NPC) 자동 추출 (어떤 키가 에러를 내는지 정확히 알려주는 기능 추가) */
 export async function extractCharactersFromHistory(
   history: string,
   modelName: string, 
   fallbackApiKey: string 
 ): Promise<{name: string; persona: string}[]> {
   const { getNextKey, rotateKey } = useApiKeyStore.getState();
-  
-  // 🌟 사용자 설정에 있는 키를 우선 사용하고, 무조건 띄어쓰기를 없앱니다.
-  let initialKey = (fallbackApiKey || getNextKey()).trim();
+  let initialKey = fallbackApiKey || getNextKey();
 
   const makeRequest = async (key: string, isRetry: boolean = false): Promise<{name: string; persona: string}[]> => {
-    if (!key) throw new Error("API 키가 비어있습니다. 설정에서 기본 Gemini API 키를 다시 확인해주세요.");
+    const cleanKey = String(key || "").trim();
+    if (!cleanKey || cleanKey === "undefined" || cleanKey === "null") {
+      throw new Error("API 키가 비어있습니다. 설정에서 Gemini API 키를 입력해주세요.");
+    }
 
     const systemPrompt = `You are a roleplay assistant. Read the recent chat history and extract any NEW supporting characters, NPCs, or extras that were mentioned or briefly interacted with.
 DO NOT include the main user or the main character.
@@ -227,34 +211,41 @@ If no new characters are found, return an empty array [].
 Respond ONLY with JSON. No markdown.`;
 
     const targetModel = isRetry ? "gemini-1.5-flash" : MODEL_NAME;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent`;
-
-    const payload = {
-      contents: [{ role: "user", parts: [{ text: `System Instruction: ${systemPrompt}\n\nRecent History:\n${history}` }] }]
-    };
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "x-goog-api-key": key // 🌟 특수문자 꼬임 방지를 위해 헤더로 전송
-      },
-      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `System Instruction: ${systemPrompt}\n\nRecent History:\n${history}` }] }],
+        generationConfig: { temperature: 0.7 },
+        safetySettings,
+      }),
     });
 
     if (response.status === 429) {
       rotateKey();
-      return makeRequest(useApiKeyStore.getState().getNextKey().trim(), isRetry);
+      return makeRequest(useApiKeyStore.getState().getNextKey(), isRetry);
     }
 
     if (!response.ok) {
       const errData = await response.json().catch(() => null);
       const errMsg = errData?.error?.message || response.statusText;
 
-      // 400(모델명 인식 불가)이나 404 발생 시, 바로 1.5-flash 모델로 재시도
+      // 🌟 방어 로직: 400 에러(모델 인식 불가) 시 구글 공식 1.5 모델로 자동 우회
       if (!isRetry && (response.status === 400 || response.status === 404)) {
+        // 단, '키가 유효하지 않다'는 명백한 거부 메시지라면 우회하지 않고 바로 원인 출력
+        if (errMsg.toLowerCase().includes("api key not valid")) {
+          const masked = cleanKey.length > 8 ? `${cleanKey.slice(0,4)}...${cleanKey.slice(-4)}` : cleanKey;
+          throw new Error(`입력된 API 키가 거부되었습니다. (현재 입력된 키: ${masked})\nAIza... 로 시작하는 구글 전용 키인지 확인해주세요.`);
+        }
         console.warn(`[Fallback] ${targetModel} failed (${response.status}). Retrying with 1.5-flash...`);
         return makeRequest(key, true);
+      }
+
+      if (errMsg.toLowerCase().includes("api key not valid")) {
+        const masked = cleanKey.length > 8 ? `${cleanKey.slice(0,4)}...${cleanKey.slice(-4)}` : cleanKey;
+        throw new Error(`입력된 API 키가 거부되었습니다. (현재 입력된 키: ${masked})\nAIza... 로 시작하는 구글 전용 키인지 확인해주세요.`);
       }
 
       throw new Error(`[${response.status}] ${errMsg}`);
