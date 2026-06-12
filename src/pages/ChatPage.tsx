@@ -19,6 +19,10 @@ import ImageCard from "@/components/ImageCard";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
+// ✅ [핵심 수정] 모듈 스코프로 이동 — 리렌더링/언마운트와 완전히 무관하게 유지됨
+const _npcQueue: { name: string; persona: string }[] = [];
+let _npcIndex = 0;
+
 /**
  * 메시지 블록 파싱 함수
  */
@@ -183,10 +187,6 @@ const ChatPage = () => {
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
   // --- 상태값 ---
-  // [수정] useState 대신 useRef로 교체 → 비동기 타이밍 문제 해결
-  const npcQueueRef = useRef<{name: string, persona: string}[]>([]);
-  const npcIndexRef = useRef(0);
-
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -498,21 +498,19 @@ const ChatPage = () => {
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
   /**
-   * [수정됨: useRef 기반 순환 로직]
-   * - npcQueueRef, npcIndexRef를 사용하여 비동기 state 업데이트 타이밍 문제 완전 해결
-   * - setNpcQueue/setNpcIndex 호출 직후에도 ref는 즉시 최신값을 반환하므로
-   *   두 번째 클릭부터 정확히 다음 인물이 추출됨
+   * [최종 수정: 모듈 스코프 변수 사용]
+   * _npcQueue, _npcIndex는 컴포넌트 바깥에 선언되어
+   * 리렌더링/언마운트와 완전히 무관하게 값이 유지됨
    */
   const handleExtractNPCs = async () => {
     setIsExtracting(true);
     const toastId = toast.loading("조연 찾는 중...");
-    console.log("=== handleExtractNPCs 호출 ===");
-    console.log("현재 큐 길이:", npcQueueRef.current.length);
-    console.log("현재 인덱스:", npcIndexRef.current);
+
+    console.log("[NPC] 호출됨 — 현재 큐 길이:", _npcQueue.length, "/ 인덱스:", _npcIndex);
 
     try {
-      // 1. 큐가 비어있으면 새로 추출
-      if (npcQueueRef.current.length === 0) {
+      // 1. 큐가 비어있으면 API로 새로 추출
+      if (_npcQueue.length === 0) {
         const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
         const api = await import("@/lib/gemini-api");
         const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
@@ -523,15 +521,16 @@ const ChatPage = () => {
           return;
         }
 
-        // ref에 즉시 동기적으로 저장
-        npcQueueRef.current = npcs;
-        npcIndexRef.current = 0;
+        // 기존 내용 비우고 새로 채움
+        _npcQueue.length = 0;
+        _npcQueue.push(...npcs);
+        _npcIndex = 0;
+        console.log("[NPC] 새로 추출됨:", _npcQueue.map(n => n.name));
       }
 
-      // 2. 현재 인덱스의 캐릭터 추가
-      const queue = npcQueueRef.current;
-      const idx = npcIndexRef.current;
-      const target = queue[idx];
+      // 2. 현재 인덱스 캐릭터 추가
+      const target = _npcQueue[_npcIndex];
+      console.log("[NPC] 추가할 캐릭터:", target.name, `(${_npcIndex + 1}/${_npcQueue.length})`);
 
       addSupportingCharacter({
         name: target.name,
@@ -540,10 +539,11 @@ const ChatPage = () => {
         personal_memory: ""
       });
 
-      toast.success(`[${target.name}] 추가됨 (순번: ${idx + 1}/${queue.length})`, { id: toastId });
+      toast.success(`[${target.name}] 추가됨 (순번: ${_npcIndex + 1}/${_npcQueue.length})`, { id: toastId });
 
-      // 3. 다음 인덱스로 이동 (순환) — ref이므로 즉시 반영
-      npcIndexRef.current = (idx + 1) % queue.length;
+      // 3. 다음 인덱스로 이동 (순환)
+      _npcIndex = (_npcIndex + 1) % _npcQueue.length;
+      console.log("[NPC] 다음 인덱스:", _npcIndex);
 
     } catch (e: any) {
       console.error(e);
