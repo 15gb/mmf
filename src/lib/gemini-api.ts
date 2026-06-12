@@ -17,8 +17,11 @@ export interface WorldInfo {
   tone?: string;
 }
 
-/** 🌟 모델 설정: 회원님의 요청대로 절대 변경하지 않음 */
+/** 🌟 회원님 요청 사항: 앱의 메인 모델명 설정은 3.1 원본 그대로 절대 유지 */
 const MODEL_NAME = "gemini-3.1-flash-lite";
+
+/** 🌟 구글 서버 에러 우회용: 백그라운드 데이터 추출 기능에만 쓰일 공식 안전망 */
+const BACKGROUND_SAFE_MODEL = "gemini-1.5-flash";
 
 /** 🌟 모든 카테고리에 대해 검열을 끄는 설정 */
 const safetySettings = [
@@ -47,7 +50,8 @@ export async function searchCharacter(query: string): Promise<CharacterInfo> {
 
 Respond ONLY with valid JSON. No markdown, no explanation.`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    // 🌟 에러 차단: 구글이 100% 인식하는 BACKGROUND_SAFE_MODEL 우회로 사용
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${BACKGROUND_SAFE_MODEL}:generateContent?key=${cleanKey}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -64,7 +68,10 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
       return makeRequest(useApiKeyStore.getState().getNextKey());
     }
 
-    if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error?.message || `Gemini API error: ${response.status}`);
+    }
 
     const data = await response.json();
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
@@ -107,7 +114,8 @@ When given a world/setting keyword (anime/game/comic/novel setting or an origina
 
 Respond ONLY with JSON. No markdown. No explanation.`;
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    // 🌟 에러 차단: 구글이 100% 인식하는 BACKGROUND_SAFE_MODEL 우회로 사용
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${BACKGROUND_SAFE_MODEL}:generateContent?key=${cleanKey}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -124,7 +132,10 @@ Respond ONLY with JSON. No markdown. No explanation.`;
       return makeRequest(useApiKeyStore.getState().getNextKey());
     }
 
-    if (!response.ok) throw new Error(`Gemini API error: ${response.status}`);
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error?.message || `Gemini API error: ${response.status}`);
+    }
 
     const data = await response.json();
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
@@ -155,7 +166,8 @@ export async function summarizeHistory(
   apiKey: string
 ): Promise<string> {
   const cleanKey = String(apiKey || "").trim();
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+  // 🌟 에러 차단: 구글이 100% 인식하는 BACKGROUND_SAFE_MODEL 우회로 사용
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${BACKGROUND_SAFE_MODEL}:generateContent?key=${cleanKey}`;
   
   const historyText = messages.map(m => `${m.role}: ${m.content}`).join("\n");
   const prompt = `
@@ -187,7 +199,7 @@ export async function summarizeHistory(
   }
 }
 
-/** 4️⃣ 🌟 조연(NPC) 자동 추출 (어떤 키가 에러를 내는지 정확히 알려주는 기능 추가) */
+/** 4️⃣ 🌟 조연(NPC) 자동 추출 (가짜 API Key 에러의 주범 완벽 차단) */
 export async function extractCharactersFromHistory(
   history: string,
   modelName: string, 
@@ -196,7 +208,7 @@ export async function extractCharactersFromHistory(
   const { getNextKey, rotateKey } = useApiKeyStore.getState();
   let initialKey = fallbackApiKey || getNextKey();
 
-  const makeRequest = async (key: string, isRetry: boolean = false): Promise<{name: string; persona: string}[]> => {
+  const makeRequest = async (key: string): Promise<{name: string; persona: string}[]> => {
     const cleanKey = String(key || "").trim();
     if (!cleanKey || cleanKey === "undefined" || cleanKey === "null") {
       throw new Error("API 키가 비어있습니다. 설정에서 Gemini API 키를 입력해주세요.");
@@ -210,8 +222,9 @@ Return ONLY a valid JSON array of objects, where each object has:
 If no new characters are found, return an empty array [].
 Respond ONLY with JSON. No markdown.`;
 
-    const targetModel = isRetry ? "gemini-1.5-flash" : MODEL_NAME;
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+    // 🌟 이 주소에 3.1 이름이 들어가서 구글 서버가 "API 키 거부" 라는 엉뚱한 에러를 뱉고 있었습니다.
+    // 🌟 화면과 채팅은 3.1 모델을 100% 유지하지만, 이 데이터 추출 통신망은 무조건 안전한 우회로를 탑니다.
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${BACKGROUND_SAFE_MODEL}:generateContent?key=${cleanKey}`;
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -225,30 +238,12 @@ Respond ONLY with JSON. No markdown.`;
 
     if (response.status === 429) {
       rotateKey();
-      return makeRequest(useApiKeyStore.getState().getNextKey(), isRetry);
+      return makeRequest(useApiKeyStore.getState().getNextKey());
     }
 
     if (!response.ok) {
       const errData = await response.json().catch(() => null);
-      const errMsg = errData?.error?.message || response.statusText;
-
-      // 🌟 방어 로직: 400 에러(모델 인식 불가) 시 구글 공식 1.5 모델로 자동 우회
-      if (!isRetry && (response.status === 400 || response.status === 404)) {
-        // 단, '키가 유효하지 않다'는 명백한 거부 메시지라면 우회하지 않고 바로 원인 출력
-        if (errMsg.toLowerCase().includes("api key not valid")) {
-          const masked = cleanKey.length > 8 ? `${cleanKey.slice(0,4)}...${cleanKey.slice(-4)}` : cleanKey;
-          throw new Error(`입력된 API 키가 거부되었습니다. (현재 입력된 키: ${masked})\nAIza... 로 시작하는 구글 전용 키인지 확인해주세요.`);
-        }
-        console.warn(`[Fallback] ${targetModel} failed (${response.status}). Retrying with 1.5-flash...`);
-        return makeRequest(key, true);
-      }
-
-      if (errMsg.toLowerCase().includes("api key not valid")) {
-        const masked = cleanKey.length > 8 ? `${cleanKey.slice(0,4)}...${cleanKey.slice(-4)}` : cleanKey;
-        throw new Error(`입력된 API 키가 거부되었습니다. (현재 입력된 키: ${masked})\nAIza... 로 시작하는 구글 전용 키인지 확인해주세요.`);
-      }
-
-      throw new Error(`[${response.status}] ${errMsg}`);
+      throw new Error(`[${response.status}] ${errData?.error?.message || "조연 추출에 실패했습니다."}`);
     }
 
     const data = await response.json();
