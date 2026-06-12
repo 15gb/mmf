@@ -56,14 +56,14 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
       return;
     }
 
-    const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"') && !p.includes('“');
-    const isParenActionOnly = p.trim().startsWith("(") && p.trim().endsWith(")") && !p.includes('"') && !p.includes('“');
+    const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"') && !p.includes('\u201c');
+    const isParenActionOnly = p.trim().startsWith("(") && p.trim().endsWith(")") && !p.includes('"') && !p.includes('\u201c');
     
     if (isActionOnly || isParenActionOnly) {
       let cleanText = p.trim();
       if (isActionOnly) cleanText = cleanText.replace(/\*/g, '');
       blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: cleanText });
-    } else if (p.includes('"') || p.includes('“') || p.includes('”')) {
+    } else if (p.includes('"') || p.includes('\u201c') || p.includes('\u201d')) {
       blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: defaultCharName, text: p.trim() });
     } else {
       blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: p.replace(/\*/g, '').trim() });
@@ -183,8 +183,9 @@ const ChatPage = () => {
   const { allConversations, saveConversation, autoSaveConversation } = useConversations();
   
   // --- 상태값 ---
-  const [npcQueue, setNpcQueue] = useState<{name: string, persona: string}[]>([]);
-  const [npcIndex, setNpcIndex] = useState(0);
+  // [수정] useState 대신 useRef로 교체 → 비동기 타이밍 문제 해결
+  const npcQueueRef = useRef<{name: string, persona: string}[]>([]);
+  const npcIndexRef = useRef(0);
 
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -497,56 +498,49 @@ const ChatPage = () => {
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
   /**
-   * [수정됨: 확실한 순환 로직]
-   * 1. 큐가 없으면 새로 생성 (API 콜)
-   * 2. 큐가 있으면 인덱스를 사용하여 순서대로 꺼냄
-   * 3. 꺼낸 후 인덱스를 반드시 다음으로 넘김 (함수형 업데이트 사용)
+   * [수정됨: useRef 기반 순환 로직]
+   * - npcQueueRef, npcIndexRef를 사용하여 비동기 state 업데이트 타이밍 문제 완전 해결
+   * - setNpcQueue/setNpcIndex 호출 직후에도 ref는 즉시 최신값을 반환하므로
+   *   두 번째 클릭부터 정확히 다음 인물이 추출됨
    */
   const handleExtractNPCs = async () => {
     setIsExtracting(true);
     const toastId = toast.loading("조연 찾는 중...");
-    
+
     try {
-      // 1. 큐가 비어있는 경우 새로 추출
-      if (npcQueue.length === 0) {
+      // 1. 큐가 비어있으면 새로 추출
+      if (npcQueueRef.current.length === 0) {
         const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
         const api = await import("@/lib/gemini-api");
         const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
-        
+
         if (!npcs || npcs.length === 0) {
           toast.info("추출된 조연이 없습니다.", { id: toastId });
           setIsExtracting(false);
           return;
         }
-        
-        // 큐 업데이트 및 첫 번째 캐릭터 처리
-        setNpcQueue(npcs);
-        setNpcIndex(1); // 0번을 이미 여기서 처리할 것이므로 1로 세팅
-        
-        addSupportingCharacter({ 
-          name: npcs[0].name, 
-          persona: npcs[0].persona, 
-          avatar: "", 
-          personal_memory: "" 
-        });
-        
-        toast.success(`[${npcs[0].name}] 추가됨 (전체:${npcs.length}명)`, { id: toastId });
-      } else {
-        // 2. 큐가 이미 있는 경우 (로테이션)
-        const target = npcQueue[npcIndex];
-        
-        addSupportingCharacter({ 
-          name: target.name, 
-          persona: target.persona, 
-          avatar: "", 
-          personal_memory: "" 
-        });
-        
-        toast.success(`[${target.name}] 추가됨 (순번:${npcIndex + 1}/${npcQueue.length})`, { id: toastId });
-        
-        // 순환 인덱스 계산 (인덱스가 큐 길이보다 크면 0으로 복귀)
-        setNpcIndex(prev => (prev + 1) % npcQueue.length);
+
+        // ref에 즉시 동기적으로 저장
+        npcQueueRef.current = npcs;
+        npcIndexRef.current = 0;
       }
+
+      // 2. 현재 인덱스의 캐릭터 추가
+      const queue = npcQueueRef.current;
+      const idx = npcIndexRef.current;
+      const target = queue[idx];
+
+      addSupportingCharacter({
+        name: target.name,
+        persona: target.persona,
+        avatar: "",
+        personal_memory: ""
+      });
+
+      toast.success(`[${target.name}] 추가됨 (순번: ${idx + 1}/${queue.length})`, { id: toastId });
+
+      // 3. 다음 인덱스로 이동 (순환) — ref이므로 즉시 반영
+      npcIndexRef.current = (idx + 1) % queue.length;
 
     } catch (e: any) {
       console.error(e);
