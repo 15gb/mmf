@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users, Edit3, UserPlus, BookOpen, Search } from "lucide-react";
+import { Send, Settings, Trash2, Loader2, X, Scissors, Save, List, Star, ImageIcon, Users, Edit3, UserPlus, BookOpen, Search, AlignLeft } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useSettings, useMessages, useConversations } from "@/lib/store";
 import { streamChat } from "@/lib/chat-api";
@@ -11,29 +11,130 @@ import ImageCard from "@/components/ImageCard";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
-const ChatMessageItem = React.memo(({ msg, charName, charAvatar, renderContent, onContextMenu }: any) => {
-  const isUser = msg.role === "user";
-  const isExtra = msg.role === "assistant" && (msg.content.trim().startsWith("**") || !msg.content.includes(charName));
+// 🌟 Zeta 스타일: 문장을 분석해서 나레이션과 대사 블록으로 쪼개는 함수
+const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
+  if (msg.role === "user") {
+    const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*");
+    return [{
+      id: msg.id,
+      type: isNarration ? 'narration' : 'user',
+      name: 'User',
+      text: isNarration ? msg.content.slice(1, -1) : msg.content
+    }];
+  }
+
+  const blocks: any[] = [];
+  // 줄바꿈 단위로 문단을 나눕니다.
+  const paragraphs = msg.content.split(/\n{1,}/).filter((p: string) => p.trim());
+
+  paragraphs.forEach((p: string, idx: number) => {
+    // **[캐릭터명]** 형태인지 검사
+    const match = p.match(/^\*\*\[(.*?)\]\*\*\s*(.*)/);
+    if (match) {
+      blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: match[1].trim(), text: match[2].trim() });
+    } else {
+      // 1. 전체가 *로 감싸여 있고 따옴표가 없으면 100% 행동/나레이션
+      const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"');
+      
+      if (isActionOnly) {
+        blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: p.replace(/\*/g, '').trim() });
+      } else if (p.includes('"') || p.includes('“') || p.includes('”')) {
+        // 따옴표가 있으면 누군가 말하는 중이라고 판단 (기본 메인 캐릭터)
+        blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: defaultCharName, text: p.trim() });
+      } else {
+        // 따옴표도 없고 캐릭터명도 없으면 배경 묘사(나레이션)로 간주 (Zeta 스타일)
+        blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: p.replace(/\*/g, '').trim() });
+      }
+    }
+  });
+  return blocks;
+};
+
+// 🌟 행동(*...*)과 대사를 구분하여 색상을 다르게 칠해주는 함수
+const renderRichText = (text: string) => {
+  const parts = text.split(/(\*[^*]+\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("*") && part.endsWith("*")) {
+      return <span key={i} className="italic text-muted-foreground/80">{part.slice(1, -1)}</span>;
+    }
+    return (
+      <span key={i}>
+        {part.split('\n').map((line, j, arr) => (
+          <React.Fragment key={j}>
+            {line}
+            {j < arr.length - 1 && <br />}
+          </React.Fragment>
+        ))}
+      </span>
+    );
+  });
+};
+
+const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
+  const imgData = decodeImageMessage(msg.content);
+  if (imgData) {
+    return (
+      <div className="flex justify-start relative z-10 mb-4" onContextMenu={(e) => onContextMenu(e, msg.id)}>
+        <ImageCard url={imgData.url} prompt={imgData.prompt} />
+      </div>
+    );
+  }
+
+  // 🌟 Zeta 스타일: 하나의 메시지를 여러 개의 블록(나레이션/말풍선)으로 쪼개서 렌더링
+  const blocks = parseMessageIntoBlocks(msg, settings.charName);
 
   return (
-    <div 
-      className={`flex ${isUser ? "justify-end" : "justify-start"} relative z-10`}
-      onContextMenu={(e) => onContextMenu(e, msg.id)}
-    >
-      {!isUser && !isExtra && (
-         <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-[10px] text-primary-foreground font-bold mr-2 mt-1 shrink-0 overflow-hidden">
-           {charAvatar ? <img src={charAvatar} className="w-full h-full object-cover" alt="avatar" /> : (charName || "AI")[0]}
-         </div>
-      )}
-      {isExtra && <div className="w-9" />}
-      
-      <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
-        isUser 
-          ? "bg-primary text-primary-foreground rounded-br-none" 
-          : "bg-card border border-border rounded-bl-none text-foreground"
-      }`}>
-        {renderContent(msg)}
-      </div>
+    <div className="flex flex-col w-full mb-1 space-y-1" onContextMenu={(e) => onContextMenu(e, msg.id)}>
+      {blocks.map((block, idx) => {
+        // 1️⃣ 나레이션 블록 렌더링 (Zeta 스타일 투명 배경 + ≡ 아이콘)
+        if (block.type === 'narration') {
+          return (
+            <div key={block.id} className="flex justify-start px-2 py-2 w-full relative z-10">
+              <div className="mr-3 mt-[3px] text-muted-foreground/50 shrink-0">
+                <AlignLeft size={16} />
+              </div>
+              <div className="flex-1 text-muted-foreground/90 italic leading-relaxed text-[15px]">
+                {block.text}
+              </div>
+            </div>
+          );
+        }
+
+        // 2️⃣ 유저 렌더링
+        if (block.type === 'user') {
+          return (
+            <div key={block.id} className="flex justify-end relative z-10 my-2">
+              <div className="max-w-[85%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm bg-primary text-primary-foreground rounded-br-none">
+                {block.text}
+              </div>
+            </div>
+          );
+        }
+
+        // 3️⃣ 캐릭터 대사(말풍선) 렌더링
+        let avatarUrl = "";
+        if (block.name === settings.charName) avatarUrl = settings.charAvatar;
+        else {
+          const extra = settings.supportingCharacters?.find((c: any) => c.name === block.name);
+          if (extra) avatarUrl = extra.avatar;
+        }
+
+        return (
+          <div key={block.id} className="flex justify-start relative z-10 my-2">
+            <div className="mr-3 shrink-0 flex flex-col items-center mt-1">
+              <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center text-sm font-bold overflow-hidden shadow-sm ring-1 ring-border/50">
+                {avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover" alt="avatar" /> : block.name[0]}
+              </div>
+            </div>
+            <div className="flex flex-col items-start max-w-[85%]">
+              <span className="text-[13px] text-muted-foreground mb-1 ml-1 font-medium">{block.name}</span>
+              <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 text-[15px] leading-relaxed shadow-sm text-foreground">
+                {renderRichText(block.text)}
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 });
@@ -42,7 +143,6 @@ const ChatPage = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   
-  // store.ts에서 업데이트된 함수들을 가져옵니다. (에러 방지를 위해 기본값 빈 함수 설정)
   const { 
     settings, 
     setSettings: updateSettings, 
@@ -64,7 +164,6 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // --- 추가된 기능들의 상태 관리 ---
   const [activeUser, setActiveUser] = useState(true);
   const [activeMain, setActiveMain] = useState(true);
   const [memoryModal, setMemoryModal] = useState<{ id: string | "MAIN", name: string, memory: string } | null>(null);
@@ -216,7 +315,7 @@ const ChatPage = () => {
 
     const participatingExtras = settings.supportingCharacters.filter(c => activeExtras.includes(c.id));
     
-    // --- 프롬프트 구성: 유저, 메인캐릭터, 조연 및 개별 기억 시스템 통합 ---
+    // 🌟 Zeta 스타일을 위한 강력한 포맷팅 규칙 적용
     let systemPrompt = `너는 역할극 작가이다. \n세계관: ${settings.worldSetting}\n\n`;
     
     const participants = [];
@@ -233,11 +332,11 @@ const ChatPage = () => {
 
     systemPrompt += `[현재 대화 참여자 목록]\n${participants.join("\n")}\n\n`;
 
-    systemPrompt += `[다중 캐릭터 그룹 채팅 절대 규칙]
+    systemPrompt += `[역할극 출력 형식 (매우 중요!)]
 1. 강제 규칙: ${settings.chatRule || "각 캐릭터의 성격과 '유저에 대한 기억'에 맞게 적절히 대답하라."}
-2. 단체 대화: 대화 참여자들끼리 각자의 성격에 맞게 반응하며 티키타카를 하라. (현재 참여자 목록에 없는 캐릭터는 대화에 개입시키지 마라.)
-3. 발화자 표기 (필수): 대화가 섞이지 않게 누가 말하는지 명확히 알 수 있도록, **모든 대사나 행동 묘사 앞에 반드시 \`**[캐릭터명]**\` 을 표기**하라.
-4. 정보 격차: 각 캐릭터는 '유저에 대한 기억'에 적힌 정보만 알고 있다. 모르는 정보는 처음 듣는 것처럼 행동하라.
+2. 대사/행동 묘사: 캐릭터가 말하거나 행동할 때는 반드시 줄을 바꾸고 **[캐릭터명]** 으로 시작하라. (예: **[레나]** *조심스레 일어서며* "고기 좋아해요.")
+3. 나레이션 분리: 누구의 것도 아닌 배경 묘사나 상황 설명은 절대 캐릭터명을 적지 말고, 줄을 바꾸어 작성하라.
+4. 단체 대화: 대화 참여자들끼리 각자의 성격에 맞게 반응하며 티키타카를 하라. 목록에 없는 캐릭터는 등장 금지.
 5. 언어: 한자/일본어 사용 금지. 한국어만 사용.`;
 
     if (isAuto) {
@@ -367,13 +466,11 @@ const ChatPage = () => {
     }
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
-  // --- 자동 조연 추출 함수 ---
   const handleExtractNPCs = async () => {
     setIsExtracting(true);
     const toastId = toast.loading("최근 대화에서 인물 찾는 중...");
     try {
       const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
-      // gemini-api.ts 모듈을 동적으로 가져옵니다.
       const api = await import("@/lib/gemini-api").catch(() => null);
       
       if (api && api.extractCharactersFromHistory) {
@@ -394,7 +491,6 @@ const ChatPage = () => {
     }
   };
 
-  // --- 기억(노트) 저장 로직 ---
   const saveMemory = async () => {
     if (!memoryModal) return;
     if (memoryModal.id === "MAIN") {
@@ -404,27 +500,6 @@ const ChatPage = () => {
     }
     toast.success("기억이 성공적으로 저장되었습니다.");
     setMemoryModal(null);
-  };
-
-  const renderContent = (msg: { role: string; content: string }) => {
-    const imgData = decodeImageMessage(msg.content);
-    if (imgData) return <ImageCard url={imgData.url} prompt={imgData.prompt} />;
-    
-    if (msg.role === "assistant") {
-      return (
-        <div className="prose prose-sm prose-invert max-w-none 
-          [&_em]:not-italic [&_em]:text-muted-foreground/70 [&_em]:font-normal
-          [&_p]:m-0 [&_p+p]:mt-2">
-          <ReactMarkdown>{msg.content}</ReactMarkdown>
-        </div>
-      );
-    }
-    
-    const isNarration = msg.content.startsWith("*") && msg.content.endsWith("*") && msg.content.length > 2;
-    if (isNarration) {
-      return <span className="italic text-muted-foreground/80">{msg.content.slice(1, -1)}</span>;
-    }
-    return msg.content;
   };
 
   const backgroundStyle = settings.chatBackground ? {
@@ -491,62 +566,36 @@ const ChatPage = () => {
             </p>
             
             <div className="space-y-2 overflow-y-auto pr-1 flex-1">
-              {/* 유저 */}
               <div className="flex items-center justify-between p-3 rounded-xl hover:bg-muted transition-colors border border-border/50">
                 <label className="flex items-center gap-3 cursor-pointer flex-1">
-                  <input 
-                    type="checkbox" 
-                    checked={activeUser} 
-                    onChange={(e) => setActiveUser(e.target.checked)} 
-                    className="w-4 h-4 rounded border-border accent-primary" 
-                  />
+                  <input type="checkbox" checked={activeUser} onChange={(e) => setActiveUser(e.target.checked)} className="w-4 h-4 rounded border-border accent-primary" />
                   <span className="text-sm font-semibold text-primary">👤 {settings.myName || "유저"} (나)</span>
                 </label>
               </div>
 
-              {/* 메인 캐릭터 */}
               <div className="flex items-center justify-between p-3 rounded-xl hover:bg-muted transition-colors border border-border/50">
                 <label className="flex items-center gap-3 cursor-pointer flex-1">
-                  <input 
-                    type="checkbox" 
-                    checked={activeMain} 
-                    onChange={(e) => setActiveMain(e.target.checked)} 
-                    className="w-4 h-4 rounded border-border accent-primary" 
-                  />
+                  <input type="checkbox" checked={activeMain} onChange={(e) => setActiveMain(e.target.checked)} className="w-4 h-4 rounded border-border accent-primary" />
                   <span className="text-sm font-semibold">👑 {settings.charName} <span className="text-xs text-muted-foreground font-normal">(주연)</span></span>
                 </label>
-                <button 
-                  onClick={() => setMemoryModal({ id: "MAIN", name: settings.charName, memory: settings.note })} 
-                  className="p-1.5 text-muted-foreground hover:text-primary bg-background rounded-md border border-border shrink-0 ml-2" 
-                  title="유저에 대한 기억 수정"
-                >
+                <button onClick={() => setMemoryModal({ id: "MAIN", name: settings.charName, memory: settings.note })} className="p-1.5 text-muted-foreground hover:text-primary bg-background rounded-md border border-border shrink-0 ml-2">
                   <BookOpen size={14} />
                 </button>
               </div>
               
-              {/* 조연 캐릭터 목록 */}
               {settings.supportingCharacters.map(char => (
                 <div key={char.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-muted transition-colors border border-border/50">
                   <label className="flex items-center gap-3 cursor-pointer flex-1 overflow-hidden">
-                    <input
-                      type="checkbox"
-                      checked={activeExtras.includes(char.id)}
-                      onChange={(e) => {
+                    <input type="checkbox" checked={activeExtras.includes(char.id)} onChange={(e) => {
                         if(e.target.checked) setActiveExtras(prev => [...prev, char.id]);
                         else setActiveExtras(prev => prev.filter(id => id !== char.id));
-                      }}
-                      className="w-4 h-4 rounded border-border accent-primary"
-                    />
+                      }} className="w-4 h-4 rounded border-border accent-primary" />
                     <div className="flex flex-col truncate">
                       <span className="text-sm font-medium truncate">{char.name}</span>
                       <span className="text-[10px] text-muted-foreground truncate">{char.persona}</span>
                     </div>
                   </label>
-                  <button 
-                    onClick={() => setMemoryModal({ id: char.id, name: char.name, memory: char.personal_memory || "" })} 
-                    className="p-1.5 text-muted-foreground hover:text-primary bg-background rounded-md border border-border shrink-0 ml-2" 
-                    title="기억 수정"
-                  >
+                  <button onClick={() => setMemoryModal({ id: char.id, name: char.name, memory: char.personal_memory || "" })} className="p-1.5 text-muted-foreground hover:text-primary bg-background rounded-md border border-border shrink-0 ml-2">
                     <BookOpen size={14} />
                   </button>
                 </div>
@@ -559,15 +608,9 @@ const ChatPage = () => {
               )}
             </div>
 
-            {/* 조연 자동 추출 영역 */}
             <div className="shrink-0 space-y-2 border-t border-border pt-4">
-              <button 
-                onClick={handleExtractNPCs} 
-                disabled={isExtracting} 
-                className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium bg-muted text-foreground rounded-xl hover:bg-muted/80 transition-all border border-border"
-              >
-                {isExtracting ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} 
-                대화에서 조연 자동 찾기
+              <button onClick={handleExtractNPCs} disabled={isExtracting} className="w-full flex items-center justify-center gap-2 py-2 text-sm font-medium bg-muted text-foreground rounded-xl hover:bg-muted/80 transition-all border border-border">
+                {isExtracting ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} 대화에서 조연 자동 찾기
               </button>
               
               {extractedNPCs.length > 0 && (
@@ -577,14 +620,11 @@ const ChatPage = () => {
                       <div className="flex flex-col truncate pr-2">
                         <span className="font-bold truncate">{npc.name}</span>
                       </div>
-                      <button 
-                        onClick={() => { 
+                      <button onClick={() => { 
                           addSupportingCharacter({ name: npc.name, persona: npc.persona, avatar: "", personal_memory: "" }); 
                           setExtractedNPCs(prev => prev.filter((_, i) => i !== idx));
                           toast.success(`${npc.name} 추가됨!`); 
-                        }} 
-                        className="px-2 py-1 bg-primary text-primary-foreground rounded text-[10px] shrink-0"
-                      >
+                        }} className="px-2 py-1 bg-primary text-primary-foreground rounded text-[10px] shrink-0">
                         추가
                       </button>
                     </div>
@@ -609,14 +649,11 @@ const ChatPage = () => {
             <h3 className="text-base font-bold flex items-center gap-2">
               <BookOpen size={18} className="text-primary" /> {memoryModal.name}의 기억
             </h3>
-            <p className="text-xs text-muted-foreground">
-              이 캐릭터가 유저에 대해 알고 있는 정보를 요약하세요. 모르는 정보는 비워두면 됩니다.
-            </p>
+            <p className="text-xs text-muted-foreground">이 캐릭터가 유저에 대해 알고 있는 정보를 요약하세요.</p>
             <textarea 
               value={memoryModal.memory} 
               onChange={(e) => setMemoryModal({ ...memoryModal, memory: e.target.value })} 
               className="w-full h-32 bg-muted rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" 
-              placeholder="예) 유저의 이름은 비요른이며, 어제 술집에서 내 목숨을 구해준 은인이다."
             />
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setMemoryModal(null)} className="px-4 py-2 text-sm hover:bg-muted rounded-lg transition-colors">취소</button>
@@ -626,20 +663,14 @@ const ChatPage = () => {
         </div>
       )}
 
-      <div 
-        ref={scrollRef} 
-        className="flex-1 overflow-y-auto px-3 py-4 space-y-4 relative" 
-        style={backgroundStyle}
-      >
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-4 space-y-4 relative" style={backgroundStyle}>
         {settings.chatBackground && <div className="absolute inset-0 bg-black/20 pointer-events-none z-0" />}
         
         {messages.map((msg) => (
           <ChatMessageItem 
             key={msg.id}
             msg={msg}
-            charName={settings.charName}
-            charAvatar={settings.charAvatar}
-            renderContent={renderContent}
+            settings={settings}
             onContextMenu={(e: any, id: string) => { e.preventDefault(); setContextMenu({ id, x: e.clientX, y: e.clientY }); }}
           />
         ))}
@@ -651,17 +682,13 @@ const ChatPage = () => {
       </div>
 
       {contextMenu && (
-        <div 
-          className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" 
-          style={{ left: contextMenu.x, top: contextMenu.y }} 
-          onClick={() => setContextMenu(null)}
-        >
+        <div className="fixed z-50 bg-card border border-border rounded-xl shadow-lg py-1 min-w-[160px]" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={() => setContextMenu(null)}>
           <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" 
             onClick={() => { 
               const m = messages.find(m => m.id === contextMenu.id); 
               if(m){ setEditingId(m.id); setEditValue(m.content); } 
             }}>
-            <Edit3 size={14} /> 메시지 수정
+            <Edit3 size={14} /> 메시지 원본 수정
           </button>
           <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" onClick={() => { deleteMessage(contextMenu.id); toast.success("삭제되었습니다"); }}>
             <X size={14} /> 삭제
@@ -676,7 +703,7 @@ const ChatPage = () => {
         <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
           <div className="bg-card w-full max-w-lg rounded-2xl p-4 space-y-4 shadow-2xl border border-border">
             <h3 className="text-sm font-bold flex items-center gap-2">
-              <Edit3 size={16} /> 메시지 수정
+              <Edit3 size={16} /> 메시지 원본 수정
             </h3>
             <textarea 
               value={editValue} 
@@ -684,12 +711,8 @@ const ChatPage = () => {
               className="w-full h-40 bg-muted rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" 
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setEditingId(null)} className="px-4 py-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors">
-                취소
-              </button>
-              <button onClick={() => { editMessage(editingId, editValue); setEditingId(null); toast.success("성공적으로 수정되었습니다."); }} className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg active:scale-95 transition-all shadow-md">
-                저장
-              </button>
+              <button onClick={() => setEditingId(null)} className="px-4 py-2 text-sm text-foreground hover:bg-muted rounded-lg transition-colors">취소</button>
+              <button onClick={() => { editMessage(editingId, editValue); setEditingId(null); toast.success("성공적으로 수정되었습니다."); }} className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-lg active:scale-95 transition-all shadow-md">저장</button>
             </div>
           </div>
         </div>

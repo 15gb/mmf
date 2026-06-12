@@ -64,7 +64,7 @@ export const streamChat = async (options: StreamChatOptions) => {
     // 1. Google Gemini 통신 세팅
     // ==========================================
     if (isGemini) {
-      const modelName = selectedModel === "gemini-3.1-flash-lite" ? "gemini-3.1-flash-lite-preview" : selectedModel;
+      const modelName = selectedModel;
       url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${key}`;
       
       body = { 
