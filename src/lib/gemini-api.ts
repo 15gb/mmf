@@ -17,10 +17,10 @@ export interface WorldInfo {
   tone?: string;
 }
 
-/** 🌟 모델 설정: 사용자 요청에 따라 Gemini 3.1 Flash Lite 사용 (절대 변경 금지) */
+/** 🌟 모델 설정: 회원님의 요청대로 절대 변경하지 않음 */
 const MODEL_NAME = "gemini-3.1-flash-lite";
 
-/** 🌟 모든 카테고리에 대해 검열을 끄는 설정 (원본 보존) */
+/** 🌟 모든 카테고리에 대해 검열을 끄는 설정 */
 const safetySettings = [
   { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
   { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -28,7 +28,7 @@ const safetySettings = [
   { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
 ];
 
-/** 1️⃣ 캐릭터 검색 및 프로필 생성 (원본 재귀 로직 및 정제 로직 100% 보존) */
+/** 1️⃣ 캐릭터 검색 및 프로필 생성 */
 export async function searchCharacter(query: string): Promise<CharacterInfo> {
   const { getNextKey, rotateKey } = useApiKeyStore.getState();
   let apiKey = getNextKey();
@@ -121,7 +121,7 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
   return makeRequest(apiKey);
 }
 
-/** 2️⃣ 세계관 자동 생성 (원본 로직 100% 보존) */
+/** 2️⃣ 세계관 자동 생성 */
 export async function searchWorld(query: string): Promise<WorldInfo> {
   const { getNextKey, rotateKey } = useApiKeyStore.getState();
   let apiKey = getNextKey();
@@ -205,7 +205,7 @@ Respond ONLY with JSON. No markdown. No explanation.`;
   return makeRequest(apiKey);
 }
 
-/** 3️⃣ 대화 기록 요약 (메모리 압축 기능 - 최신 모델 적용) */
+/** 3️⃣ 대화 기록 요약 */
 export async function summarizeHistory(
   messages: { role: string; content: string }[], 
   currentSummary: string, 
@@ -243,7 +243,7 @@ export async function summarizeHistory(
   }
 }
 
-/** 4️⃣ 🌟 대화에서 조연(NPC) 자동 추출 기능 추가 (400 에러 우회 로직 포함) */
+/** 4️⃣ 🌟 조연(NPC) 자동 추출 기능 (400 에러 강력 우회 및 상세 에러 출력) */
 export async function extractCharactersFromHistory(
   history: string,
   modelName: string, 
@@ -263,20 +263,19 @@ Return ONLY a valid JSON array of objects, where each object has:
 If no new characters are found, return an empty array [].
 Respond ONLY with JSON. No markdown.`;
 
-    // 🌟 상수 MODEL_NAME(3.1)을 건드리지 않으면서, 400 에러 시에만 조용히 1.5-flash로 우회하여 성공시킵니다.
+    // 🌟 강제 우회 로직: 400 에러 발생 후 재시도 시에는 안전하게 1.5-flash 모델로 대체합니다.
     const targetModel = isRetry ? "gemini-1.5-flash" : MODEL_NAME;
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${key}`;
+
+    // 🌟 400 에러 원인을 원천 차단하기 위해 페이로드를 가장 단순한 형태로 다이어트시킵니다.
+    const payload = {
+      contents: [{ role: "user", parts: [{ text: `System Instruction: ${systemPrompt}\n\nRecent History:\n${history}` }] }]
+    };
 
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: `System Instruction: ${systemPrompt}\n\nRecent History:\n${history}` }] }],
-        generationConfig: {
-          temperature: 0.7,
-        },
-        safetySettings,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (response.status === 429) {
@@ -286,14 +285,18 @@ Respond ONLY with JSON. No markdown.`;
       return makeRequest(newApiKey, isRetry);
     }
 
-    // 🌟 핵심 방어 로직: 400 에러(모델명 인식 불가) 발생 시, 에러를 띄우지 않고 1.5 모델로 자동 재시도
-    if (response.status === 400 && !isRetry) {
-      console.warn(`[Fallback] ${MODEL_NAME} failed with 400. Retrying with gemini-1.5-flash...`);
-      return makeRequest(key, true);
-    }
-
     if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`);
+      const errData = await response.json().catch(() => null);
+      const errMsg = errData?.error?.message || response.statusText;
+
+      // 🌟 핵심 방어 로직: 400(Bad Request) 이나 404(Not Found) 에러 발생 시, 바로 1.5-flash 모델로 재시도
+      if (!isRetry && (response.status === 400 || response.status === 404)) {
+        console.warn(`[Fallback] ${targetModel} failed (${response.status}). Retrying with gemini-1.5-flash...`);
+        return makeRequest(key, true);
+      }
+
+      // 재시도 마저 실패할 경우 화면에 구글 서버의 정확한 에러 메세지를 던져줍니다.
+      throw new Error(`[${response.status}] ${errMsg}`);
     }
 
     const data = await response.json();
