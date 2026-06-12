@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import ImageUploadField from "@/components/ImageUploadField";
 import CharacterSearch from "@/components/CharacterSearch";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
-import { searchWorld } from "@/lib/gemini-api";
+// 🌟 동적 임포트 에러 해결을 위해 extractCharactersFromHistory를 상단에서 미리 안전하게 불러옵니다.
+import { searchWorld, extractCharactersFromHistory } from "@/lib/gemini-api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -73,7 +74,6 @@ const SettingsPage = () => {
   const [worldQuery, setWorldQuery] = useState("");
   const [isWorldSearching, setIsWorldSearching] = useState(false);
   
-  // 🌟 조연 추출 상태 관리
   const [isExtractingId, setIsExtractingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -151,10 +151,10 @@ const SettingsPage = () => {
     }
   };
 
-  // 🌟 최근 대화에서 조연 정보 추출 로직
+  // 🌟 최근 대화에서 조연 정보 추출 로직 (에러 디버깅 강화)
   const handleExtractNPC = async (charId: string) => {
     if (messages.length === 0) {
-      toast.error("현재 대화 기록이 없습니다. 채팅을 먼저 진행해주세요.");
+      toast.error("현재 대화 기록이 없습니다. 먼저 채팅방에서 대화를 진행해주세요.");
       return;
     }
     
@@ -163,27 +163,29 @@ const SettingsPage = () => {
     
     try {
       const history = messages.slice(-15).map(m => `${m.role === "user" ? "User" : "AI"}: ${m.content}`).join("\n");
-      const api = await import("@/lib/gemini-api").catch(() => null);
       
-      if (api && api.extractCharactersFromHistory) {
-        const npcs = await api.extractCharactersFromHistory(history, form.selectedModel || "gemini-3.1-flash-lite", form.geminiApiKey || "");
+      // 정적 임포트된 함수 직접 사용
+      const npcs = await extractCharactersFromHistory(
+        history, 
+        form.selectedModel || "gemini-3.1-flash-lite", 
+        form.geminiApiKey || ""
+      );
+      
+      if (npcs && npcs.length > 0) {
+        const npc = npcs[0]; 
+        handleAutoFillSupporting(charId, { name: npc.name, persona: npc.persona });
+        toast.success(`'${npc.name}' 정보를 성공적으로 추출했습니다!`, { id: toastId });
         
-        if (npcs && npcs.length > 0) {
-          const npc = npcs[0]; // 제일 처음 발견된 조연 정보 사용
-          handleAutoFillSupporting(charId, { name: npc.name, persona: npc.persona });
-          toast.success(`'${npc.name}' 정보를 성공적으로 추출했습니다!`, { id: toastId });
-          
-          if (npcs.length > 1) {
-            toast.info(`총 ${npcs.length}명의 인물이 발견되어 첫 번째 인물 정보로 채웠습니다.`, { duration: 4000 });
-          }
-        } else {
-          toast.info("최근 대화에서 새로운 조연 인물을 찾지 못했습니다.", { id: toastId });
+        if (npcs.length > 1) {
+          toast.info(`총 ${npcs.length}명의 인물이 발견되어 첫 번째 인물 정보로 채웠습니다.`, { duration: 4000 });
         }
       } else {
-        toast.error("API 함수를 불러올 수 없습니다.", { id: toastId });
+        toast.info("최근 대화에서 새로운 조연 인물을 찾지 못했습니다.", { id: toastId });
       }
-    } catch (error) {
-      toast.error("조연 추출에 실패했습니다.", { id: toastId });
+    } catch (error: any) {
+      console.error("추출 에러 상세:", error);
+      // 어떤 원인으로 실패했는지 상세한 에러 메시지를 띄워줍니다.
+      toast.error(`조연 추출 실패: ${error.message || "알 수 없는 에러가 발생했습니다."}`, { id: toastId });
     } finally {
       setIsExtractingId(null);
     }
@@ -243,7 +245,6 @@ const SettingsPage = () => {
               <div key={char.id} className="p-4 pt-10 rounded-xl bg-muted/30 border border-border relative space-y-3">
                 <button onClick={() => handleRemoveCharacter(char.id)} className="absolute top-2 right-2 p-1.5 text-destructive hover:bg-destructive/10 rounded-lg transition-colors z-10" title="조연 삭제"><Trash size={16} /></button>
                 
-                {/* 🌟 기존 캐릭터 검색 + 대화에서 추출 버튼 세트 */}
                 <div className="mb-3 space-y-2">
                   <CharacterSearch onSelect={(data) => { handleAutoFillSupporting(char.id, data); toast.success("조연 정보가 자동으로 채워졌습니다!"); }} />
                   <button 

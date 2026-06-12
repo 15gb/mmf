@@ -24,25 +24,20 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   }
 
   const blocks: any[] = [];
-  // 줄바꿈 단위로 문단을 나눕니다.
   const paragraphs = msg.content.split(/\n{1,}/).filter((p: string) => p.trim());
 
   paragraphs.forEach((p: string, idx: number) => {
-    // **[캐릭터명]** 형태인지 검사
     const match = p.match(/^\*\*\[(.*?)\]\*\*\s*(.*)/);
     if (match) {
       blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: match[1].trim(), text: match[2].trim() });
     } else {
-      // 1. 전체가 *로 감싸여 있고 따옴표가 없으면 100% 행동/나레이션
-      const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"');
+      const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"') && !p.includes('“');
       
       if (isActionOnly) {
         blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: p.replace(/\*/g, '').trim() });
       } else if (p.includes('"') || p.includes('“') || p.includes('”')) {
-        // 따옴표가 있으면 누군가 말하는 중이라고 판단 (기본 메인 캐릭터)
         blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: defaultCharName, text: p.trim() });
       } else {
-        // 따옴표도 없고 캐릭터명도 없으면 배경 묘사(나레이션)로 간주 (Zeta 스타일)
         blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: p.replace(/\*/g, '').trim() });
       }
     }
@@ -50,15 +45,16 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   return blocks;
 };
 
-// 🌟 행동(*...*)과 대사를 구분하여 색상을 다르게 칠해주는 함수
+// 🌟 2번 기능: 행동(*...*)은 회색으로, 일반 대사는 또렷하게 구분하는 렌더러
 const renderRichText = (text: string) => {
   const parts = text.split(/(\*[^*]+\*)/g);
   return parts.map((part, i) => {
     if (part.startsWith("*") && part.endsWith("*")) {
+      // 행동 나레이션: 회색 이탤릭체 적용
       return <span key={i} className="italic text-muted-foreground/80">{part.slice(1, -1)}</span>;
     }
     return (
-      <span key={i}>
+      <span key={i} className="text-foreground">
         {part.split('\n').map((line, j, arr) => (
           <React.Fragment key={j}>
             {line}
@@ -80,27 +76,25 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
     );
   }
 
-  // 🌟 Zeta 스타일: 하나의 메시지를 여러 개의 블록(나레이션/말풍선)으로 쪼개서 렌더링
   const blocks = parseMessageIntoBlocks(msg, settings.charName);
 
   return (
     <div className="flex flex-col w-full mb-1 space-y-1" onContextMenu={(e) => onContextMenu(e, msg.id)}>
       {blocks.map((block, idx) => {
-        // 1️⃣ 나레이션 블록 렌더링 (Zeta 스타일 투명 배경 + ≡ 아이콘)
+        // 🌟 2번 기능: 기본 나레이션 렌더링 (회색 글씨 + 검은 배경 박스 적용)
         if (block.type === 'narration') {
           return (
-            <div key={block.id} className="flex justify-start px-2 py-2 w-full relative z-10">
-              <div className="mr-3 mt-[3px] text-muted-foreground/50 shrink-0">
+            <div key={block.id} className="flex justify-start w-full relative z-10 my-1">
+              <div className="mr-3 mt-1.5 text-muted-foreground/50 shrink-0">
                 <AlignLeft size={16} />
               </div>
-              <div className="flex-1 text-muted-foreground/90 italic leading-relaxed text-[15px]">
+              <div className="flex-1 bg-black/10 dark:bg-black/30 border border-border/30 rounded-2xl px-4 py-3 text-muted-foreground italic leading-relaxed text-[15px] shadow-sm">
                 {block.text}
               </div>
             </div>
           );
         }
 
-        // 2️⃣ 유저 렌더링
         if (block.type === 'user') {
           return (
             <div key={block.id} className="flex justify-end relative z-10 my-2">
@@ -111,7 +105,6 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
           );
         }
 
-        // 3️⃣ 캐릭터 대사(말풍선) 렌더링
         let avatarUrl = "";
         if (block.name === settings.charName) avatarUrl = settings.charAvatar;
         else {
@@ -128,7 +121,7 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
             </div>
             <div className="flex flex-col items-start max-w-[85%]">
               <span className="text-[13px] text-muted-foreground mb-1 ml-1 font-medium">{block.name}</span>
-              <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 text-[15px] leading-relaxed shadow-sm text-foreground">
+              <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-3 text-[15px] leading-relaxed shadow-sm">
                 {renderRichText(block.text)}
               </div>
             </div>
@@ -315,29 +308,35 @@ const ChatPage = () => {
 
     const participatingExtras = settings.supportingCharacters.filter(c => activeExtras.includes(c.id));
     
-    // 🌟 Zeta 스타일을 위한 강력한 포맷팅 규칙 적용
+    // 🌟 1번 기능: 제외된 캐릭터들을 찾아내어 완벽한 등장 금지 블랙리스트 생성
+    const excludedNames = [];
+    if (!activeUser) excludedNames.push(settings.myName || "유저");
+    if (!activeMain) excludedNames.push(settings.charName);
+    settings.supportingCharacters.forEach(c => {
+      if (!activeExtras.includes(c.id)) excludedNames.push(c.name);
+    });
+
     let systemPrompt = `너는 역할극 작가이다. \n세계관: ${settings.worldSetting}\n\n`;
     
     const participants = [];
-    if (activeUser) {
-      participants.push(`- 유저(이름: ${settings.myName || "유저"}, 소개: ${settings.myIntro || "없음"})`);
-    }
-    if (activeMain) {
-      participants.push(`- 주연(${settings.charName} - 성격: ${settings.charPersona} / 유저에 대한 기억: ${settings.note || '아직 모름'})`);
-    }
-    
+    if (activeUser) participants.push(`- 유저(이름: ${settings.myName || "유저"}, 소개: ${settings.myIntro || "없음"})`);
+    if (activeMain) participants.push(`- 주연(${settings.charName} - 성격: ${settings.charPersona} / 유저에 대한 기억: ${settings.note || '아직 모름'})`);
     participatingExtras.forEach(e => {
       participants.push(`- 조연(${e.name} - 성격: ${e.persona} / 유저에 대한 기억: ${e.personal_memory || '아직 모름'})`);
     });
 
     systemPrompt += `[현재 대화 참여자 목록]\n${participants.join("\n")}\n\n`;
 
+    // 🌟 강력한 제외 캐릭터 금지 선언
+    if (excludedNames.length > 0) {
+      systemPrompt += `[🛑 절대 금지 규칙: 다음 캐릭터들은 현재 자리에 없거나 대화에서 빠졌으므로, 절대로 등장시키거나 대사를 작성하지 마라: ${excludedNames.join(", ")}]\n\n`;
+    }
+
     systemPrompt += `[역할극 출력 형식 (매우 중요!)]
 1. 강제 규칙: ${settings.chatRule || "각 캐릭터의 성격과 '유저에 대한 기억'에 맞게 적절히 대답하라."}
-2. 대사/행동 묘사: 캐릭터가 말하거나 행동할 때는 반드시 줄을 바꾸고 **[캐릭터명]** 으로 시작하라. (예: **[레나]** *조심스레 일어서며* "고기 좋아해요.")
-3. 나레이션 분리: 누구의 것도 아닌 배경 묘사나 상황 설명은 절대 캐릭터명을 적지 말고, 줄을 바꾸어 작성하라.
-4. 단체 대화: 대화 참여자들끼리 각자의 성격에 맞게 반응하며 티키타카를 하라. 목록에 없는 캐릭터는 등장 금지.
-5. 언어: 한자/일본어 사용 금지. 한국어만 사용.`;
+2. 대사/행동 묘사 분리: 캐릭터가 말할 때는 반드시 줄을 바꾸고 **[캐릭터명]** 으로 시작하라. 캐릭터의 대사 앞뒤나 중간에 있는 행동/감정 묘사는 반드시 별표(*)로 감싸라. (예: **[레나]** *조심스레 일어서며* "고기 좋아해요.")
+3. 나레이션 분리: 누구의 대사도 아닌 순수 배경 묘사, 상황 설명, 시간 경과 등은 캐릭터명이나 따옴표 없이 줄을 바꾸어 작성하라.
+4. 언어: 한자/일본어 사용 금지. 한국어만 사용.`;
 
     if (isAuto) {
       systemPrompt += `\n\n[특수: 자동 진행 모드] 현재 유저의 입력이 없다. 절대 유저의 대사를 네가 대신 작성하지 마라. 현재 참여중인 캐릭터들끼리의 내면 생각, 혼잣말, 단독 행동으로 스토리를 진행하라.`;
@@ -562,7 +561,7 @@ const ChatPage = () => {
               <Users size={18} className="text-primary" /> 참여자 & 기억 설정
             </h3>
             <p className="text-xs text-muted-foreground shrink-0">
-              체크된 캐릭터들이 대화에 참여합니다. 책 모양 버튼을 눌러 유저에 대한 기억을 수정하세요.
+              체크 해제된 캐릭터는 대화에 절대 개입하지 않습니다. 책 버튼을 눌러 기억을 수정하세요.
             </p>
             
             <div className="space-y-2 overflow-y-auto pr-1 flex-1">
