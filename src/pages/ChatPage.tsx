@@ -27,32 +27,56 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   const paragraphs = msg.content.split(/\n{1,}/).filter((p: string) => p.trim());
 
   paragraphs.forEach((p: string, idx: number) => {
+    // 1. **[캐릭터명]** 형태인지 먼저 검사
     const match = p.match(/^\*\*\[(.*?)\]\*\*\s*(.*)/);
     if (match) {
-      blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: match[1].trim(), text: match[2].trim() });
-    } else {
-      const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"') && !p.includes('“');
+      const charName = match[1].trim();
+      const textContent = match[2].trim();
       
-      if (isActionOnly) {
-        blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: p.replace(/\*/g, '').trim() });
-      } else if (p.includes('"') || p.includes('“') || p.includes('”')) {
-        blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: defaultCharName, text: p.trim() });
+      // 🌟 [시스템] 인 경우 무조건 나레이션(검은 배경)으로 강제 변환
+      if (charName === "시스템" || charName.toUpperCase() === "SYSTEM") {
+        blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: textContent });
       } else {
-        blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: p.replace(/\*/g, '').trim() });
+        blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: charName, text: textContent });
       }
+      return;
+    }
+
+    // 2. 가끔 "시스템: ~" 형태로 나올 때를 대비한 방어 코드
+    const sysMatch = p.match(/^(시스템|System)\s*:\s*(.*)/i);
+    if (sysMatch) {
+      blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: sysMatch[2].trim() });
+      return;
+    }
+
+    // 3. 일반적인 나레이션/대사 검사
+    const isActionOnly = p.trim().startsWith("*") && p.trim().endsWith("*") && !p.includes('"') && !p.includes('“');
+    const isParenActionOnly = p.trim().startsWith("(") && p.trim().endsWith(")") && !p.includes('"') && !p.includes('“');
+    
+    if (isActionOnly || isParenActionOnly) {
+      let cleanText = p.trim();
+      if (isActionOnly) cleanText = cleanText.replace(/\*/g, '');
+      blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: cleanText });
+    } else if (p.includes('"') || p.includes('“') || p.includes('”')) {
+      blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: defaultCharName, text: p.trim() });
+    } else {
+      blocks.push({ id: `${msg.id}-${idx}`, type: 'narration', name: '', text: p.replace(/\*/g, '').trim() });
     }
   });
   return blocks;
 };
 
-// 🌟 2번 기능: 행동(*...*)은 회색으로, 일반 대사는 또렷하게 구분하는 렌더러
+// 🌟 2번 기능: 별표(*...*)와 괄호(...) 행동 묘사를 모두 회색으로 칠해주는 함수
 const renderRichText = (text: string) => {
-  const parts = text.split(/(\*[^*]+\*)/g);
+  // 별표나 괄호로 감싸진 구간을 기준으로 텍스트를 나눕니다.
+  const parts = text.split(/(\*[^*]+\*|\([^)]+\))/g);
   return parts.map((part, i) => {
     if (part.startsWith("*") && part.endsWith("*")) {
-      // 행동 나레이션: 회색 이탤릭체 적용
       return <span key={i} className="italic text-muted-foreground/80">{part.slice(1, -1)}</span>;
+    } else if (part.startsWith("(") && part.endsWith(")")) {
+      return <span key={i} className="italic text-muted-foreground/80">{part}</span>;
     }
+    
     return (
       <span key={i} className="text-foreground">
         {part.split('\n').map((line, j, arr) => (
@@ -81,14 +105,14 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
   return (
     <div className="flex flex-col w-full mb-1 space-y-1" onContextMenu={(e) => onContextMenu(e, msg.id)}>
       {blocks.map((block, idx) => {
-        // 🌟 2번 기능: 기본 나레이션 렌더링 (회색 글씨 + 검은 배경 박스 적용)
+        // 🌟 1번 기능: 나레이션 배경을 더 어둡게(bg-black/40) 변경하고 흐림 효과 추가
         if (block.type === 'narration') {
           return (
             <div key={block.id} className="flex justify-start w-full relative z-10 my-1">
               <div className="mr-3 mt-1.5 text-muted-foreground/50 shrink-0">
                 <AlignLeft size={16} />
               </div>
-              <div className="flex-1 bg-black/10 dark:bg-black/30 border border-border/30 rounded-2xl px-4 py-3 text-muted-foreground italic leading-relaxed text-[15px] shadow-sm">
+              <div className="flex-1 bg-black/40 dark:bg-black/60 border border-border/20 rounded-2xl px-4 py-3 text-muted-foreground/90 italic leading-relaxed text-[15px] shadow-md backdrop-blur-sm">
                 {block.text}
               </div>
             </div>
@@ -308,7 +332,6 @@ const ChatPage = () => {
 
     const participatingExtras = settings.supportingCharacters.filter(c => activeExtras.includes(c.id));
     
-    // 🌟 1번 기능: 제외된 캐릭터들을 찾아내어 완벽한 등장 금지 블랙리스트 생성
     const excludedNames = [];
     if (!activeUser) excludedNames.push(settings.myName || "유저");
     if (!activeMain) excludedNames.push(settings.charName);
@@ -327,15 +350,14 @@ const ChatPage = () => {
 
     systemPrompt += `[현재 대화 참여자 목록]\n${participants.join("\n")}\n\n`;
 
-    // 🌟 강력한 제외 캐릭터 금지 선언
     if (excludedNames.length > 0) {
       systemPrompt += `[🛑 절대 금지 규칙: 다음 캐릭터들은 현재 자리에 없거나 대화에서 빠졌으므로, 절대로 등장시키거나 대사를 작성하지 마라: ${excludedNames.join(", ")}]\n\n`;
     }
 
     systemPrompt += `[역할극 출력 형식 (매우 중요!)]
 1. 강제 규칙: ${settings.chatRule || "각 캐릭터의 성격과 '유저에 대한 기억'에 맞게 적절히 대답하라."}
-2. 대사/행동 묘사 분리: 캐릭터가 말할 때는 반드시 줄을 바꾸고 **[캐릭터명]** 으로 시작하라. 캐릭터의 대사 앞뒤나 중간에 있는 행동/감정 묘사는 반드시 별표(*)로 감싸라. (예: **[레나]** *조심스레 일어서며* "고기 좋아해요.")
-3. 나레이션 분리: 누구의 대사도 아닌 순수 배경 묘사, 상황 설명, 시간 경과 등은 캐릭터명이나 따옴표 없이 줄을 바꾸어 작성하라.
+2. 대사/행동 묘사 분리: 캐릭터가 말할 때는 반드시 줄을 바꾸고 **[캐릭터명]** 으로 시작하라. 캐릭터의 대사 앞뒤나 중간에 있는 행동/감정 묘사는 반드시 별표(*) 또는 괄호()로 감싸라. (예: **[레나]** (조심스레 일어서며) "고기 좋아해요.")
+3. 나레이션 분리: 누구의 대사도 아닌 순수 배경 묘사, 상황 설명, 시간 경과 등은 캐릭터명이나 따옴표 없이 줄을 바꾸어 작성하라. (만약 시스템 메시지라면 **[시스템]** 이라고 표기하라)
 4. 언어: 한자/일본어 사용 금지. 한국어만 사용.`;
 
     if (isAuto) {

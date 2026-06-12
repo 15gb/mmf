@@ -68,7 +68,6 @@ Respond ONLY with valid JSON. No markdown, no explanation.`;
           topK: 40,
           topP: 0.95,
           maxOutputTokens: 1024,
-          response_mime_type: "application/json", // 🌟 3.1 모델의 JSON 강제 응답 기능 추가
         },
         safetySettings, 
       }),
@@ -163,7 +162,6 @@ Respond ONLY with JSON. No markdown. No explanation.`;
           topK: 40,
           topP: 0.95,
           maxOutputTokens: 1024,
-          response_mime_type: "application/json",
         },
         safetySettings,
       }),
@@ -277,7 +275,6 @@ Respond ONLY with JSON. No markdown.`;
         contents: [{ parts: [{ text: `System Instruction: ${systemPrompt}\n\nRecent History:\n${history}` }] }],
         generationConfig: {
           temperature: 0.7,
-          response_mime_type: "application/json",
         },
         safetySettings,
       }),
