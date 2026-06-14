@@ -381,10 +381,14 @@ const ChatPage = () => {
       systemPrompt += `[🛑 절대 금지 규칙: 다음 캐릭터들은 현재 자리에 없거나 대화에서 빠졌으므로, 절대로 등장시키거나 대사를 작성하지 마라: ${excludedNames.join(", ")}]\n\n`;
     }
 
-    // ✅ [핵심 수정] 노트(기억)를 이용한 대화 박스/길이 제어 룰셋 적용
+    // 🌟 [핵심 변경 사항] 설정창에서 입력받은 나레이션/대화 박스 갯수 및 글자 수 제어 룰셋 적용
     systemPrompt += `[역할극 출력 형식 및 길이 제어 (매우 중요!)]
 1. 강제 규칙: 각 캐릭터의 성격에 맞게 대답하라.
-2. 🌟 길이 및 구조 제어: 주연의 '노트(기억)'란에 나레이션 갯수, 캐릭터별 대화 박스 갯수 등 대답의 길이나 구성에 대한 지시사항이 있다면 **무조건 그 지시를 최우선으로 반영하여 출력 길이를 조절하라.** (현재 설정된 노트 내용: ${settings.note || '없음'})
+2. 🌟 길이 및 구조 제어 (반드시 아래의 박스 갯수와 글자 수를 준수할 것):
+   - 나레이션(상황 묘사/배경 설명): 한 번의 답변에서 약 ${settings.narrationCount || 3}개의 문단(박스)으로 나누어 출력하고, 각 문단은 대략 ${settings.narrationLength || 50}자 내외로 작성하라.
+   - 주연(${settings.charName}) 대사: 한 번의 답변에서 약 ${settings.mainCharCount || 2}개의 말풍선(박스)으로 나누어 출력하고, 각 대사는 대략 ${settings.mainCharLength || 30}자 내외로 작성하라.
+   - 조연 대사: 한 번의 답변에서 조연이 나설 경우 약 ${settings.extraCharCount || 2}개의 말풍선(박스)으로 나누어 출력하고, 각 대사는 대략 ${settings.extraCharLength || 30}자 내외로 작성하라.
+   (현재 설정된 추가 노트/기억 내용: ${settings.note || '없음'})
 3. 대화 블록 분리: **모든 대사 앞에는 반드시 화자의 이름을 명시해야 한다.** 절대 화자 이름 없이 따옴표만 출력하지 마라. (형식: **[캐릭터명]** "대사 내용")
 4. 대사/행동 분리: 대사 중간이나 앞뒤의 행동/감정 묘사는 별표(*) 또는 괄호()로 감싸라. (예: **[레나]** (조심스레 일어서며) "고기 좋아해요.")
 5. 나레이션 분리: 누구의 대사도 아닌 순수 배경 묘사, 상황 설명, 시간 경과 등은 캐릭터명이나 따옴표 없이 줄을 바꾸어 작성하라. (만약 시스템 메시지라면 **[시스템]** 이라고 표기하라)
@@ -569,7 +573,6 @@ const ChatPage = () => {
     setMemoryModal(null);
   };
 
-  // ✅ [수정됨] 단일 블록 삭제 로직
   const handleDeleteBlock = () => {
     if (!contextMenu) return;
     
@@ -594,26 +597,22 @@ const ChatPage = () => {
     setContextMenu(null);
   };
 
-  // ✅ [핵심 수정] 단일 블록 이후 전체 삭제 로직
   const handleDeleteFromHere = () => {
     if (!contextMenu) return;
     const { id, blockIndex } = contextMenu;
     const msgIndex = messages.findIndex(m => m.id === id);
     if (msgIndex === -1) return;
 
-    // 1. 현재 메세지 이후의 모든 메세지 삭제
     if (msgIndex + 1 < messages.length) {
        deleteMessagesFrom(messages[msgIndex + 1].id);
     }
 
-    // 2. 현재 메세지 자르기 처리
     if (blockIndex !== null && blockIndex > 0) {
       const msg = messages[msgIndex];
       const paragraphs = msg.content.split(/\n{1,}/).filter(p => p.trim());
       const keptParagraphs = paragraphs.slice(0, blockIndex);
       editMessage(id, keptParagraphs.join("\n\n"));
     } else {
-      // 가장 첫 말풍선(0번째)이거나 전체 선택인 경우, 현재 메시지도 통째로 날림
       deleteMessage(id);
     }
 
@@ -669,7 +668,6 @@ const ChatPage = () => {
   // --------------------------------------------------------------------------
   return (
     <div className="flex flex-col h-[100dvh] bg-background">
-      {/* 헤더 섹션 */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card shrink-0 z-20">
         <button onClick={() => navigate("/settings")} className="flex items-center gap-2 text-foreground active:opacity-70 transition-opacity overflow-hidden max-w-[50%]">
           <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-sm font-bold overflow-hidden shrink-0">
@@ -812,7 +810,6 @@ const ChatPage = () => {
             key={msg.id}
             msg={msg}
             settings={settings}
-            // ✅ [핵심 수정] 우클릭 시 메뉴가 화면 밖으로 가려지지 않게 Y좌표 보정 로직 추가
             onContextMenu={(e: any, id: string, idx: number | null = null) => { 
               e.preventDefault(); 
               const menuHeight = 160; 
@@ -841,7 +838,6 @@ const ChatPage = () => {
           <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" onClick={handleDeleteBlock}>
             <X size={14} /> 삭제 {contextMenu.blockIndex !== null ? '(해당 말풍선만)' : ''}
           </button>
-          {/* ✅ [수정됨] 단일 블록 기준으로 그 이후를 자르는 함수(handleDeleteFromHere) 연결 */}
           <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors" onClick={handleDeleteFromHere}>
             <Scissors size={14} /> 이후 전체 삭제 {contextMenu.blockIndex !== null ? '(여기부터)' : ''}
           </button>

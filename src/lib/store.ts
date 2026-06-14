@@ -40,6 +40,13 @@ export interface AppSettings {
   historySummary: string;
   selectedModel: string;
   chatRule: string; 
+  // 🌟 추가된 답변 길이 제어 변수들
+  narrationCount: string;
+  narrationLength: string;
+  mainCharCount: string;
+  mainCharLength: string;
+  extraCharCount: string;
+  extraCharLength: string;
 }
 
 export interface Conversation {
@@ -67,6 +74,13 @@ const DEFAULT_SETTINGS: AppSettings = {
   historySummary: "",
   selectedModel: "gemini-3.1-flash-lite",
   chatRule: "캐릭터의 성격에 맞게 자연스럽고 적절한 길이로 대답해.", 
+  // 🌟 추가된 기본값
+  narrationCount: "3",
+  narrationLength: "50",
+  mainCharCount: "2",
+  mainCharLength: "30",
+  extraCharCount: "2",
+  extraCharLength: "30",
 };
 
 let loadedSettingsUserId: string | null = null;
@@ -82,6 +96,13 @@ function normalizeSettings(input: Partial<AppSettings> | null | undefined): AppS
     historySummary: input?.historySummary || "",
     selectedModel: input?.selectedModel || "gemini-3.1-flash-lite",
     chatRule: input?.chatRule || DEFAULT_SETTINGS.chatRule,
+    // 🌟 추가된 변수 정규화
+    narrationCount: input?.narrationCount || "3",
+    narrationLength: input?.narrationLength || "50",
+    mainCharCount: input?.mainCharCount || "2",
+    mainCharLength: input?.mainCharLength || "30",
+    extraCharCount: input?.extraCharCount || "2",
+    extraCharLength: input?.extraCharLength || "30",
   };
 }
 
@@ -142,6 +163,13 @@ function rowToSettings(row: any, currentSettings: AppSettings): AppSettings {
     selectedModel: row.selected_model || currentSettings.selectedModel || "gemini-3.1-flash-lite",
     chatRule: currentSettings.chatRule, 
     supportingCharacters,
+    // 🌟 추가된 변수 DB 연동 (DB에 컬럼이 없다면 로컬스토리지에 의존함)
+    narrationCount: row.narration_count || currentSettings.narrationCount || "3",
+    narrationLength: row.narration_length || currentSettings.narrationLength || "50",
+    mainCharCount: row.main_char_count || currentSettings.mainCharCount || "2",
+    mainCharLength: row.main_char_length || currentSettings.mainCharLength || "30",
+    extraCharCount: row.extra_char_count || currentSettings.extraCharCount || "2",
+    extraCharLength: row.extra_char_length || currentSettings.extraCharLength || "30",
   };
 }
 
@@ -190,6 +218,13 @@ export function useSettings() {
         supporting_characters: JSON.stringify(normalized.supportingCharacters),
         history_summary: normalized.historySummary,
         updated_at: new Date().toISOString(),
+        // 🌟 DB 저장 (Supabase에 해당 컬럼이 미리 생성되어 있어야 저장됨)
+        narration_count: normalized.narrationCount,
+        narration_length: normalized.narrationLength,
+        main_char_count: normalized.mainCharCount,
+        main_char_length: normalized.mainCharLength,
+        extra_char_count: normalized.extraCharCount,
+        extra_char_length: normalized.extraCharLength,
       }, { onConflict: "user_id" });
     }
   }, [user]);
