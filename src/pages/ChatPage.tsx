@@ -19,13 +19,13 @@ import ImageCard from "@/components/ImageCard";
 
 const SPLIT_MARKER = "[[SPLIT]]";
 
-// ✅ [핵심 수정] 모듈 스코프로 이동 — 리렌더링/언마운트와 완전히 무관하게 유지됨
+// ✅ 모듈 스코프로 이동 — 리렌더링/언마운트와 완전히 무관하게 유지됨
 const _npcQueue: { name: string; persona: string }[] = [];
 let _npcIndex = 0;
 
 /**
  * 메시지 블록 파싱 함수
- * ✅ [수정됨] 화자 이름과 내용을 더 정확하게 분리하고, 잘못된 캐릭터 덮어쓰기 방지
+ * ✅ [수정됨] 나레이션이 중간에 껴있어도 가장 마지막에 말한 캐릭터를 찾아내어 화자 꼬임 방지
  */
 const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   if (msg.role === "user") {
@@ -75,14 +75,14 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
     } 
     
     // 4. 그냥 대사만 있는 경우 (따옴표 포함)
-    // ✅ [수정됨] 이전 블록이 있고 같은 화자라면, defaultCharName으로 강제 덮어쓰기 전에 화자 유지 시도. 
-    // 하지만 가장 안전한 건 AI가 출력한 따옴표 문장을 단순히 가장 기본 캐릭터(defaultCharName)에 할당하는 기존 로직 유지하되, 
-    // AI 시스템 프롬프트에서 반드시 화자 이름을 명시하도록 강제하는 것임.
+    // ✅ [핵심 수정] 이전 블록이 나레이션이더라도, 배열을 거꾸로 뒤져서 가장 최근에 말한 '화자'를 찾아냄
     if (p.includes('"') || p.includes('\u201c') || p.includes('\u201d')) {
-      // 이름 명시 없이 따옴표만 나오는 경우, 직전 발화자가 있으면 그 사람으로 추정, 없으면 default
       let assumedName = defaultCharName;
-      if (blocks.length > 0 && blocks[blocks.length-1].type === 'speech') {
-        assumedName = blocks[blocks.length-1].name;
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        if (blocks[i].type === 'speech') {
+          assumedName = blocks[i].name;
+          break;
+        }
       }
       blocks.push({ id: `${msg.id}-${idx}`, type: 'speech', name: assumedName, text: p.trim() });
     } else {
@@ -137,7 +137,6 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
       {blocks.map((block, idx) => {
         if (block.type === 'narration') {
           return (
-            // ✅ [수정됨] 개별 블록 우클릭 시, 부모 메시지 ID와 블록 ID(idx)를 함께 전달
             <div key={block.id} className="flex justify-start w-full relative z-10 my-1" onContextMenu={(e) => onContextMenu(e, msg.id, idx)}>
               <div className="mr-3 mt-1.5 text-muted-foreground/50 shrink-0">
                 <AlignLeft size={16} />
@@ -206,11 +205,9 @@ const ChatPage = () => {
   // --- 상태값 ---
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  // ✅ [수정됨] blockIndex 추가: 특정 블록만 삭제/수정하기 위해
   const [contextMenu, setContextMenu] = useState<{ id: string; blockIndex: number | null; x: number; y: number } | null>(null);
   
   const [editingId, setEditingId] = useState<string | null>(null);
-  // ✅ [수정됨] 편집 중인 블록 인덱스 저장
   const [editingBlockIndex, setEditingBlockIndex] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   
@@ -384,14 +381,14 @@ const ChatPage = () => {
       systemPrompt += `[🛑 절대 금지 규칙: 다음 캐릭터들은 현재 자리에 없거나 대화에서 빠졌으므로, 절대로 등장시키거나 대사를 작성하지 마라: ${excludedNames.join(", ")}]\n\n`;
     }
 
-    // ✅ [수정됨] AI가 절대로 여러 사람의 대사를 섞어 쓰지 않도록 강제 규칙 강화
-    systemPrompt += `[역할극 출력 형식 (매우 중요!)]
-1. 강제 규칙: 각 캐릭터의 성격과 '유저에 대한 기억'에 맞게 적절히 대답하라.
-2. 대화 블록 분리: **모든 대사 앞에는 반드시 화자의 이름을 명시해야 한다.** 절대 화자 이름 없이 따옴표만 출력하지 마라.
-   형식: **[캐릭터명]** "대사 내용"
-3. 대사/행동 분리: 대사 중간이나 앞뒤의 행동/감정 묘사는 별표(*)로 감싸라. (예: **[레나]** *미소지으며* "안녕.")
-4. 나레이션 분리: 누구의 대사도 아닌 순수 배경 묘사, 상황 설명은 캐릭터명 없이 줄을 바꾸어 작성하라.
-5. 언어: 한자/일본어 사용 금지. 한국어만 사용.`;
+    // ✅ [핵심 수정] 노트(기억)를 이용한 대화 박스/길이 제어 룰셋 적용
+    systemPrompt += `[역할극 출력 형식 및 길이 제어 (매우 중요!)]
+1. 강제 규칙: 각 캐릭터의 성격에 맞게 대답하라.
+2. 🌟 길이 및 구조 제어: 주연의 '노트(기억)'란에 나레이션 갯수, 캐릭터별 대화 박스 갯수 등 대답의 길이나 구성에 대한 지시사항이 있다면 **무조건 그 지시를 최우선으로 반영하여 출력 길이를 조절하라.** (현재 설정된 노트 내용: ${settings.note || '없음'})
+3. 대화 블록 분리: **모든 대사 앞에는 반드시 화자의 이름을 명시해야 한다.** 절대 화자 이름 없이 따옴표만 출력하지 마라. (형식: **[캐릭터명]** "대사 내용")
+4. 대사/행동 분리: 대사 중간이나 앞뒤의 행동/감정 묘사는 별표(*) 또는 괄호()로 감싸라. (예: **[레나]** (조심스레 일어서며) "고기 좋아해요.")
+5. 나레이션 분리: 누구의 대사도 아닌 순수 배경 묘사, 상황 설명, 시간 경과 등은 캐릭터명이나 따옴표 없이 줄을 바꾸어 작성하라. (만약 시스템 메시지라면 **[시스템]** 이라고 표기하라)
+6. 언어: 한자/일본어 사용 금지. 한국어만 사용.`;
 
     if (isAuto) {
       systemPrompt += `\n\n[특수: 자동 진행 모드] 현재 유저의 입력이 없다. 절대 유저의 대사를 네가 대신 작성하지 마라. 현재 참여중인 캐릭터들끼리의 내면 생각, 혼잣말, 단독 행동으로 스토리를 진행하라.`;
@@ -513,11 +510,6 @@ const ChatPage = () => {
     }
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
-  /**
-   * [최종 수정: 모듈 스코프 변수 사용]
-   * _npcQueue, _npcIndex는 컴포넌트 바깥에 선언되어
-   * 리렌더링/언마운트와 완전히 무관하게 값이 유지됨
-   */
   const handleExtractNPCs = async () => {
     console.log("▶ 클릭됨. _npcQueue.length =", _npcQueue.length, "_npcIndex =", _npcIndex);
     setIsExtracting(true);
@@ -526,7 +518,6 @@ const ChatPage = () => {
     console.log("[NPC] 호출됨 — 현재 큐 길이:", _npcQueue.length, "/ 인덱스:", _npcIndex);
 
     try {
-      // 1. 큐가 비어있으면 API로 새로 추출
       if (_npcQueue.length === 0) {
         const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
         const api = await import("@/lib/gemini-api");
@@ -538,14 +529,12 @@ const ChatPage = () => {
           return;
         }
 
-        // 기존 내용 비우고 새로 채움
         _npcQueue.length = 0;
         _npcQueue.push(...npcs);
         _npcIndex = 0;
         console.log("[NPC] 새로 추출됨:", _npcQueue.map(n => n.name));
       }
 
-      // 2. 현재 인덱스 캐릭터 추가
       const target = _npcQueue[_npcIndex];
       console.log("[NPC] 추가할 캐릭터:", target.name, `(${_npcIndex + 1}/${_npcQueue.length})`);
 
@@ -558,7 +547,6 @@ const ChatPage = () => {
 
       toast.success(`[${target.name}] 추가됨 (순번: ${_npcIndex + 1}/${_npcQueue.length})`, { id: toastId });
 
-      // 3. 다음 인덱스로 이동 (순환)
       _npcIndex = (_npcIndex + 1) % _npcQueue.length;
       console.log("[NPC] 다음 인덱스:", _npcIndex);
 
@@ -581,7 +569,7 @@ const ChatPage = () => {
     setMemoryModal(null);
   };
 
-  // ✅ [수정됨] 단일 블록 삭제 로직 
+  // ✅ [수정됨] 단일 블록 삭제 로직
   const handleDeleteBlock = () => {
     if (!contextMenu) return;
     
@@ -594,11 +582,9 @@ const ChatPage = () => {
       toast.success("삭제되었습니다");
     } else {
       const paragraphs = msg.content.split(/\n{1,}/).filter(p => p.trim());
-      // 만약 블록이 1개 이하면 그냥 전체 메시지 삭제
       if (paragraphs.length <= 1) {
         deleteMessage(id);
       } else {
-        // 해당 블록(문단)만 제거
         paragraphs.splice(blockIndex, 1);
         const newContent = paragraphs.join("\n\n");
         editMessage(id, newContent);
@@ -608,7 +594,33 @@ const ChatPage = () => {
     setContextMenu(null);
   };
 
-  // ✅ [수정됨] 단일 블록 수정 로직 준비
+  // ✅ [핵심 수정] 단일 블록 이후 전체 삭제 로직
+  const handleDeleteFromHere = () => {
+    if (!contextMenu) return;
+    const { id, blockIndex } = contextMenu;
+    const msgIndex = messages.findIndex(m => m.id === id);
+    if (msgIndex === -1) return;
+
+    // 1. 현재 메세지 이후의 모든 메세지 삭제
+    if (msgIndex + 1 < messages.length) {
+       deleteMessagesFrom(messages[msgIndex + 1].id);
+    }
+
+    // 2. 현재 메세지 자르기 처리
+    if (blockIndex !== null && blockIndex > 0) {
+      const msg = messages[msgIndex];
+      const paragraphs = msg.content.split(/\n{1,}/).filter(p => p.trim());
+      const keptParagraphs = paragraphs.slice(0, blockIndex);
+      editMessage(id, keptParagraphs.join("\n\n"));
+    } else {
+      // 가장 첫 말풍선(0번째)이거나 전체 선택인 경우, 현재 메시지도 통째로 날림
+      deleteMessage(id);
+    }
+
+    toast.success("선택한 말풍선 이후의 대화가 모두 삭제되었습니다.");
+    setContextMenu(null);
+  };
+
   const handleEditBlockStart = () => {
     if (!contextMenu) return;
     const { id, blockIndex } = contextMenu;
@@ -628,7 +640,6 @@ const ChatPage = () => {
     setContextMenu(null);
   };
 
-  // ✅ [수정됨] 단일 블록 수정 저장 로직
   const handleEditSave = () => {
     if (!editingId) return;
     const msg = messages.find(m => m.id === editingId);
@@ -801,8 +812,16 @@ const ChatPage = () => {
             key={msg.id}
             msg={msg}
             settings={settings}
-            // ✅ [수정됨] 개별 블록 우클릭 시 블록 인덱스(idx)까지 받아오도록 전달
-            onContextMenu={(e: any, id: string, idx: number | null = null) => { e.preventDefault(); setContextMenu({ id, blockIndex: idx, x: e.clientX, y: e.clientY }); }}
+            // ✅ [핵심 수정] 우클릭 시 메뉴가 화면 밖으로 가려지지 않게 Y좌표 보정 로직 추가
+            onContextMenu={(e: any, id: string, idx: number | null = null) => { 
+              e.preventDefault(); 
+              const menuHeight = 160; 
+              let safeY = e.clientY;
+              if (safeY + menuHeight > window.innerHeight) {
+                safeY = window.innerHeight - menuHeight - 16;
+              }
+              setContextMenu({ id, blockIndex: idx, x: e.clientX, y: safeY }); 
+            }}
           />
         ))}
         {isLoading && (
@@ -822,8 +841,9 @@ const ChatPage = () => {
           <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm hover:bg-muted transition-colors" onClick={handleDeleteBlock}>
             <X size={14} /> 삭제 {contextMenu.blockIndex !== null ? '(해당 말풍선만)' : ''}
           </button>
-          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors" onClick={() => { deleteMessagesFrom(contextMenu.id); toast.success("이후 대화가 삭제되었습니다"); }}>
-            <Scissors size={14} /> 이후 전체 삭제
+          {/* ✅ [수정됨] 단일 블록 기준으로 그 이후를 자르는 함수(handleDeleteFromHere) 연결 */}
+          <button className="flex items-center gap-2 w-full px-4 py-2.5 text-sm text-destructive hover:bg-muted transition-colors" onClick={handleDeleteFromHere}>
+            <Scissors size={14} /> 이후 전체 삭제 {contextMenu.blockIndex !== null ? '(여기부터)' : ''}
           </button>
         </div>
       )}
