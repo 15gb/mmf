@@ -25,7 +25,7 @@ let _npcIndex = 0;
 
 /**
  * 메시지 블록 파싱 함수
- * ✅ [수정됨] 나레이션이 중간에 껴있어도 가장 마지막에 말한 캐릭터를 찾아내어 화자 꼬임 방지
+ * ✅ 나레이션이 중간에 껴있어도 가장 마지막에 말한 캐릭터를 찾아내어 화자 꼬임 방지
  */
 const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
   if (msg.role === "user") {
@@ -75,7 +75,7 @@ const parseMessageIntoBlocks = (msg: any, defaultCharName: string) => {
     } 
     
     // 4. 그냥 대사만 있는 경우 (따옴표 포함)
-    // ✅ [핵심 수정] 이전 블록이 나레이션이더라도, 배열을 거꾸로 뒤져서 가장 최근에 말한 '화자'를 찾아냄
+    // ✅ 이전 블록이 나레이션이더라도, 배열을 거꾸로 뒤져서 가장 최근에 말한 '화자'를 찾아냄
     if (p.includes('"') || p.includes('\u201c') || p.includes('\u201d')) {
       let assumedName = defaultCharName;
       for (let i = blocks.length - 1; i >= 0; i--) {
@@ -219,6 +219,9 @@ const ChatPage = () => {
   const [activeMain, setActiveMain] = useState(true);
   const [memoryModal, setMemoryModal] = useState<{ id: string | "MAIN", name: string, memory: string } | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
+  
+  // 🌟 새롭게 추가된 상태: 대화 기록 정리 중 여부
+  const [isExtractingMemory, setIsExtractingMemory] = useState(false);
 
   const [activeExtras, setActiveExtras] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem("active-extras") || "[]"); }
@@ -381,7 +384,6 @@ const ChatPage = () => {
       systemPrompt += `[🛑 절대 금지 규칙: 다음 캐릭터들은 현재 자리에 없거나 대화에서 빠졌으므로, 절대로 등장시키거나 대사를 작성하지 마라: ${excludedNames.join(", ")}]\n\n`;
     }
 
-    // 🌟 [핵심 변경 사항] 설정창에서 입력받은 나레이션/대화 박스 갯수 및 글자 수 제어 룰셋 적용
     systemPrompt += `[역할극 출력 형식 및 길이 제어 (매우 중요!)]
 1. 강제 규칙: 각 캐릭터의 성격에 맞게 대답하라.
 2. 🌟 길이 및 구조 제어 (반드시 아래의 박스 갯수와 글자 수를 준수할 것):
@@ -561,6 +563,65 @@ const ChatPage = () => {
       setIsExtracting(false);
     }
   };
+
+  // 🌟 새롭게 추가된 기능: 대화 기록을 분석하여 '영구적인 중대 설정'만 뽑아내어 노트에 누적 저장
+  const handleExtractMemory = useCallback(async () => {
+    if (messages.length === 0) {
+      toast.error("정리할 대화 기록이 없습니다.");
+      return;
+    }
+
+    setIsExtractingMemory(true);
+    const toastId = toast.loading("대화에서 중요한 영구 설정을 분석 중입니다...");
+
+    // 너무 길면 컨텍스트가 넘치므로 최근 30개 메시지 위주로 분석
+    const history = messages.slice(-30).map(m => `${m.role === "assistant" ? settings.charName : (settings.myName || "유저")}: ${m.content}`).join("\n");
+    
+    const systemPrompt = `너는 역할극 대화 기록을 분석하여 '핵심 설정'을 기록하는 전문 서기다.
+유저와 캐릭터 간의 대화를 읽고, **영구적이고 중대한 변화나 설정(낙인처럼 새겨야 할 내용)**만 추출하라.
+- 포함할 예시: 신체 훼손(예: 팔이 잘림), 영구적인 외모 변화(염색, 흉터), 돌이킬 수 없는 중대한 사건, 아주 중요한 특수 아이템 획득.
+- 제외할 예시: "내일 만나자", "밥 먹자" 같은 일회성 약속, 사소한 감정 변화, 일상적인 대화.
+
+[현재 캐릭터의 기존 노트(기억) 내용]
+${settings.note || "없음"}
+
+위 대화 기록을 분석하여, '기존 노트'에 없는 **새로운 중대 설정**만 요약하라.
+기존 노트 내용 뒤에 자연스럽게 덧붙일 수 있도록 요약된 문장들만 작성하라.
+만약 새롭게 추가할 중대한 설정이 하나도 없다면, 반드시 "추가할 내용 없음" 이라고만 대답하라.`;
+
+    const prompt = `${systemPrompt}\n\n[최근 대화 기록]\n${history}\n\n새로운 기억 요약:`;
+
+    let extraLine = "";
+    try {
+      await streamChat({
+        message: prompt,
+        settings: settings,
+        onDelta: (delta) => { extraLine += delta; },
+        onDone: async () => {
+          toast.dismiss(toastId);
+          setIsExtractingMemory(false);
+          const result = extraLine.trim();
+          
+          if (result === "" || result.includes("추가할 내용 없음")) {
+            toast.info("새로 기억할 만한 중대한 설정 변화가 없습니다.");
+          } else {
+            // 기존 노트 뒤에 새로운 기억을 줄바꿈하여 덧붙임
+            const newNote = settings.note ? `${settings.note}\n${result}` : result;
+            await updateSettings({ ...settings, note: newNote });
+            toast.success("중요한 대화 설정이 주연의 기억(노트)에 영구적으로 새겨졌습니다!");
+          }
+        },
+        onError: (err) => {
+          toast.dismiss(toastId);
+          setIsExtractingMemory(false);
+          toast.error("대화 내용 분석 중 오류가 발생했습니다.");
+        }
+      });
+    } catch (e) {
+      toast.dismiss(toastId);
+      setIsExtractingMemory(false);
+    }
+  }, [messages, settings, updateSettings]);
 
   const saveMemory = async () => {
     if (!memoryModal) return;
@@ -771,7 +832,12 @@ const ChatPage = () => {
               </button>
             </div>
             
-            <div className="flex justify-end pt-2 shrink-0">
+            {/* 🌟 확인 버튼 옆에 '대화 기록 정리' 버튼 추가됨 */}
+            <div className="flex justify-end gap-2 pt-2 shrink-0">
+              <button onClick={handleExtractMemory} disabled={isExtractingMemory} className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-xl active:scale-95 transition-all disabled:opacity-50">
+                {isExtractingMemory ? <Loader2 size={16} className="animate-spin" /> : <BookOpen size={16} />} 
+                대화 기록 정리
+              </button>
               <button onClick={() => setShowParticipantModal(false)} className="px-5 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-xl active:scale-95 transition-all">
                 확인
               </button>
