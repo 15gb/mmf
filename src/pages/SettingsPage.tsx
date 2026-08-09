@@ -385,7 +385,7 @@ const SettingsPage = () => {
                 {/* 🌟 정확한 주소가 반영된 NVIDIA 무료 모델들 */}
                 <option value="nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B (OpenRouter 무료)</option>
                 <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (OpenRouter 무료)</option>
-                
+                <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B MoE (OpenRouter 무료)</option>
                 <option value="openai/gpt-oss-120b:free">GPT-OSS 120B (OpenRouter 무료)</option>
               </select>
             </div>
