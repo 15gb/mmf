@@ -380,11 +380,13 @@ const SettingsPage = () => {
               >
                 <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Google)</option>
                 <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
-                <option value="command-r">Command R (Cohere)</option>
-                <option value="gpt-5">GPT-5 (GitHub Models 무료)</option>
-                {/* 🌟 수정: 뒤에 :free 를 붙이고, 대안 모델인 Toppy도 추가했습니다 */}
-                <option value="gryphe/mythomist-7b:free">MythoMist 7B (OpenRouter 무료)</option>
-                <option value="undi95/toppy-m-7b:free">Toppy M 7B (OpenRouter 무료)</option>
+                <option value="openrouter/free">OpenRouter (공식 무료 자동 선택)</option>
+                
+                {/* 🌟 정확한 주소가 반영된 NVIDIA 무료 모델들 */}
+                <option value="nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B (OpenRouter 무료)</option>
+                <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (OpenRouter 무료)</option>
+                
+                <option value="openai/gpt-oss-120b:free">GPT-OSS 120B (OpenRouter 무료)</option>
               </select>
             </div>
 
