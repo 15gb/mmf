@@ -32,8 +32,8 @@ export const streamChat = async (options: StreamChatOptions) => {
   const isCohere = selectedModel.includes("command");
   const isGitHub = selectedModel.includes("gpt") || selectedModel.includes("openai"); 
   // 🌟 수정: 오픈라우터에서 가져오는 모델들(mythomist, openrouter, nvidia 등)을 모두 OpenRouter 통신으로 묶어줍니다.
-  const isOpenRouter = selectedModel.includes("mythomist") || selectedModel.includes("openrouter") || selectedModel.includes("nvidia");
-
+// 🌟 주소에 ':free'가 들어가거나 구글 오픈소스(gemma 등) 모델이 포함되면 무조건 OpenRouter로 처리
+  const isOpenRouter = selectedModel.includes(":free") || selectedModel.includes("mythomist") || selectedModel.includes("openrouter") || selectedModel.includes("nvidia") || selectedModel.includes("gemma");
   // 🌟 모델에 맞는 API 키를 동적으로 탐색하여 할당합니다.
   let currentApiKey = "";
 
