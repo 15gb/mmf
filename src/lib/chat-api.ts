@@ -31,6 +31,7 @@ export const streamChat = async (options: StreamChatOptions) => {
   const isGroq = selectedModel.includes("llama");
   const isCohere = selectedModel.includes("command");
   const isGitHub = selectedModel.includes("gpt") || selectedModel.includes("openai"); // 🌟 openai/gpt-5 감지
+  const isOpenRouter = selectedModel.includes("mythomist"); // 🌟 OpenRouter 모델 감지 추가
 
   // 🌟 모델에 맞는 API 키를 동적으로 탐색하여 할당합니다.
   let currentApiKey = "";
@@ -47,11 +48,15 @@ export const streamChat = async (options: StreamChatOptions) => {
     // 🌟 깃허브(GPT)용 키 찾기
     const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("github") || k.name.toLowerCase().includes("gpt"));
     currentApiKey = keyObj?.value || "";
+  } else if (isOpenRouter) {
+    // 🌟 OpenRouter용 키 찾기
+    const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("openrouter"));
+    currentApiKey = keyObj?.value || "";
   }
 
   // 키를 찾지 못했다면 바로 에러를 띄우고 종료합니다.
   if (!currentApiKey) {
-    options.onError(`[${selectedModel}] 모델에 대한 API 키를 찾을 수 없습니다. 설정 화면에서 키 이름(Groq, Cohere, GitHub 등)을 정확히 입력했는지 확인해주세요.`);
+    options.onError(`[${selectedModel}] 모델에 대한 API 키를 찾을 수 없습니다. 설정 화면에서 키 이름(Groq, Cohere, GitHub, OpenRouter 등)을 정확히 입력했는지 확인해주세요.`);
     return;
   }
 
@@ -128,6 +133,24 @@ export const streamChat = async (options: StreamChatOptions) => {
         stream: true, 
       };
     }
+    // ==========================================
+    // 5. 🌟 OpenRouter 통신 세팅
+    // ==========================================
+    else if (isOpenRouter) {
+      url = "https://openrouter.ai/api/v1/chat/completions";
+      headers["Authorization"] = `Bearer ${key}`;
+      // 오픈라우터는 출처 헤더를 권장합니다.
+      headers["HTTP-Referer"] = window.location.origin; 
+      headers["X-Title"] = "Memory Mate Chat"; 
+      body = {
+        model: selectedModel, // "gryphe/mythomist-7b" 가 전송됩니다.
+        messages: [{ role: "user", content: options.message }],
+        temperature: 0.9,
+        top_p: 0.95,
+        max_tokens: 2048,
+        stream: true, 
+      };
+    }
 
     try {
       const response = await fetch(url, {
@@ -173,8 +196,8 @@ export const streamChat = async (options: StreamChatOptions) => {
               const json = JSON.parse(line.substring(6));
               delta = json.candidates?.[0]?.content?.parts?.[0]?.text;
             } 
-            // 🌟 Groq와 GitHub Models(GPT)는 동일한 OpenAI 표준 스트리밍 규격을 사용하므로 묶어서 처리합니다.
-            else if ((isGroq || isGitHub) && line.startsWith("data: ")) {
+            // 🌟 Groq, GitHub Models(GPT), OpenRouter는 동일한 OpenAI 표준 스트리밍 규격을 사용하므로 묶어서 처리합니다.
+            else if ((isGroq || isGitHub || isOpenRouter) && line.startsWith("data: ")) {
               if (line.includes("[DONE]")) break; 
               const json = JSON.parse(line.substring(6));
               delta = json.choices?.[0]?.delta?.content;

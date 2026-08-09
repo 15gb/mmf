@@ -112,7 +112,8 @@ const SettingsPage = () => {
   };
 
   const handleAddApiKey = () => {
-    const newKey: ExtraApiKey = { id: generateUUID(), name: "GitHub", value: "" };
+    // ✅ 새 키 추가 시 OpenRouter를 기본값으로 변경
+    const newKey: ExtraApiKey = { id: generateUUID(), name: "OpenRouter", value: "" };
     update("extraApiKeys", [...form.extraApiKeys, newKey]);
   };
 
@@ -297,7 +298,6 @@ const SettingsPage = () => {
           </div>
         </Section>
 
-        {/* ✅ 참여자 & 기억 설정 섹션 — 삭제 버튼 추가 */}
         <Section title="참여자 & 기억 설정">
           <p className="text-xs text-muted-foreground">조연을 삭제하면 대화 참여자 목록에서도 제거됩니다.</p>
           <div className="space-y-2">
@@ -382,6 +382,8 @@ const SettingsPage = () => {
                 <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
                 <option value="command-r">Command R (Cohere)</option>
                 <option value="gpt-5">GPT-5 (GitHub Models 무료)</option>
+                {/* ✅ 새로 추가된 MythoMist (오픈라우터 연동용) */}
+                <option value="gryphe/mythomist-7b">MythoMist 7B (OpenRouter 무검열/무료)</option>
               </select>
             </div>
 
@@ -414,6 +416,8 @@ const SettingsPage = () => {
                       <option value="Groq">Groq (Llama)</option>
                       <option value="Cohere">Cohere (Command R)</option>
                       <option value="GitHub">GitHub (GPT-5용)</option>
+                      {/* ✅ 새로 추가된 OpenRouter API 선택지 */}
+                      <option value="OpenRouter">OpenRouter (무검열 무료)</option>
                     </select>
 
                     <input 
