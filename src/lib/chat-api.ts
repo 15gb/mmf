@@ -30,9 +30,8 @@ export const streamChat = async (options: StreamChatOptions) => {
   const isGemini = selectedModel.includes("gemini");
   const isGroq = selectedModel.includes("llama");
   const isCohere = selectedModel.includes("command");
-  const isGitHub = selectedModel.includes("gpt") || selectedModel.includes("openai"); // 🌟 openai/gpt-5 감지
-  const isOpenRouter = selectedModel.includes("mythomist"); // 🌟 OpenRouter 모델 감지 추가
-
+  const isGitHub = selectedModel.includes("gpt") || selectedModel.includes("openai"); 
+  const isOpenRouter = selectedModel.includes("mythomist"); // 👈 이 부분이 문제였습니다!
   // 🌟 모델에 맞는 API 키를 동적으로 탐색하여 할당합니다.
   let currentApiKey = "";
 
