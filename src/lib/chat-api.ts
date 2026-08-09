@@ -31,7 +31,9 @@ export const streamChat = async (options: StreamChatOptions) => {
   const isGroq = selectedModel.includes("llama");
   const isCohere = selectedModel.includes("command");
   const isGitHub = selectedModel.includes("gpt") || selectedModel.includes("openai"); 
-  const isOpenRouter = selectedModel.includes("mythomist"); // 👈 이 부분이 문제였습니다!
+  // 🌟 수정: 오픈라우터에서 가져오는 모델들(mythomist, openrouter, nvidia 등)을 모두 OpenRouter 통신으로 묶어줍니다.
+  const isOpenRouter = selectedModel.includes("mythomist") || selectedModel.includes("openrouter") || selectedModel.includes("nvidia");
+
   // 🌟 모델에 맞는 API 키를 동적으로 탐색하여 할당합니다.
   let currentApiKey = "";
 
