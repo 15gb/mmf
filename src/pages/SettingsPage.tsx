@@ -382,8 +382,9 @@ const SettingsPage = () => {
                 <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
                 <option value="command-r">Command R (Cohere)</option>
                 <option value="gpt-5">GPT-5 (GitHub Models 무료)</option>
-                {/* ✅ 새로 추가된 MythoMist (오픈라우터 연동용) */}
-                <option value="gryphe/mythomist-7b">MythoMist 7B (OpenRouter 무검열/무료)</option>
+                {/* 🌟 수정: 뒤에 :free 를 붙이고, 대안 모델인 Toppy도 추가했습니다 */}
+                <option value="gryphe/mythomist-7b:free">MythoMist 7B (OpenRouter 무료)</option>
+                <option value="undi95/toppy-m-7b:free">Toppy M 7B (OpenRouter 무료)</option>
               </select>
             </div>
 
