@@ -215,8 +215,11 @@ const ChatPage = () => {
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const [activeUser, setActiveUser] = useState(true);
+  // 🌟 개선 1: 유저 참여 기본값을 false로 변경
+  const [activeUser, setActiveUser] = useState(false);
   const [activeMain, setActiveMain] = useState(true);
+  // 🌟 개선 3: 엑스트라 자동 난입 스위치 상태 추가 (기본값 false)
+  const [activeDynamicExtra, setActiveDynamicExtra] = useState(false);
   const [memoryModal, setMemoryModal] = useState<{ id: string | "MAIN", name: string, memory: string } | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   
@@ -380,8 +383,16 @@ const ChatPage = () => {
     });
 
     systemPrompt += `[현재 대화 참여자 목록]\n${participants.join("\n")}\n\n`;
+    // 🌟 개선 2: 꺼진 캐릭터가 튀어나오지 않도록 훨씬 강력한 통제 규칙 적용
     if (excludedNames.length > 0) {
-      systemPrompt += `[🛑 절대 금지 규칙: 다음 캐릭터들은 현재 자리에 없거나 대화에서 빠졌으므로, 절대로 등장시키거나 대사를 작성하지 마라: ${excludedNames.join(", ")}]\n\n`;
+      systemPrompt += `\n[🛑 절대 금지 규칙: 현재 장면(Scene)에 ${excludedNames.join(", ")}는 자리에 없거나 개입하지 않습니다. 절대 이 캐릭터들의 이름, 대사, 행동, 반응을 스스로 지어내어 출력하지 마십시오.]\n\n`;
+    }
+
+    // 🌟 개선 3: 엑스트라 스위치 상태에 따른 프롬프트 자동 추가
+    if (activeDynamicExtra) {
+      systemPrompt += `[엑스트라 개입 활성화: 현재 상황과 장소의 분위기에 맞춰 자연스럽게 어울리는 엑스트라(예: 웨이터, 지나가는 행인, 적, 조력자 등)를 적극적으로 등장시키십시오. 엑스트라의 대사와 행동을 주도적으로 묘사하여 세계관을 풍부하게 만드십시오.]\n\n`;
+    } else {
+      systemPrompt += `[엑스트라 금지: 메인 캐릭터 외에 불필요한 조연이나 이름 없는 엑스트라를 임의로 등장시키지 마십시오.]\n\n`;
     }
 
     systemPrompt += `[역할극 출력 형식 및 길이 제어 (매우 중요!)]
@@ -800,7 +811,14 @@ ${settings.note || "없음"}
                   <BookOpen size={14} />
                 </button>
               </div>
-              
+              {/* 🌟 여기에 새로운 엑스트라 스위치를 삽입합니다 🌟 */}
+              <div className="flex items-center justify-between p-3 rounded-xl hover:bg-muted transition-colors border border-border/50">
+                <label className="flex items-center gap-3 cursor-pointer flex-1">
+                  <input type="checkbox" checked={activeDynamicExtra} onChange={(e) => setActiveDynamicExtra(e.target.checked)} className="w-4 h-4 rounded border-border accent-primary" />
+                  <span className="text-sm font-semibold">👥 엑스트라 <span className="text-xs text-muted-foreground font-normal">(상황에 맞게 자동 난입)</span></span>
+                </label>
+              </div>
+              {/* 🌟 삽입 끝 🌟 */}
               {settings.supportingCharacters.map(char => (
                 <div key={char.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-muted transition-colors border border-border/50">
                   <label className="flex items-center gap-3 cursor-pointer flex-1 overflow-hidden">
