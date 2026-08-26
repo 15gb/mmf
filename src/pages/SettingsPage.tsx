@@ -374,19 +374,31 @@ const SettingsPage = () => {
                 <Bot size={16} className="text-primary" /> 사용할 AI 모델
               </label>
               <select
-                value={form.selectedModel || "gemini-3.1-flash-lite"}
+                value={form.selectedModel || "gemini-3.5-flash"}
                 onChange={(e) => update("selectedModel", e.target.value)}
                 className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring border border-border"
               >
-                <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (Google)</option>
-                <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
-                <option value="openrouter/free">OpenRouter (공식 무료 자동 선택)</option>
+                {/* 🌟 구글 Gemini 최신 라인업 추가 */}
+                <optgroup label="Google Gemini (공식 API)">
+                  <option value="gemini-3.5-flash">Gemini 3.5 Flash (추천: 강력한 기억력)</option>
+                  <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (빠른 속도)</option>
+                  <option value="gemini-3.6-flash">Gemini 3.6 Flash (최신 테스트)</option>
+                  <option value="gemini-3.7-flash">Gemini 3.7 Flash (최신 테스트)</option>
+                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (구버전)</option>
+                </optgroup>
+
+                {/* 🌟 외부 무료 모델 라인업 유지 */}
+                <optgroup label="OpenRouter 무료 모델">
+                  <option value="openrouter/free">OpenRouter (공식 무료 자동 선택)</option>
+                  <option value="nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B</option>
+                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
+                  <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B MoE</option>
+                  <option value="openai/gpt-oss-120b:free">GPT-OSS 120B</option>
+                </optgroup>
                 
-                {/* 🌟 정확한 주소가 반영된 NVIDIA 무료 모델들 */}
-                <option value="nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B (OpenRouter 무료)</option>
-                <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (OpenRouter 무료)</option>
-                <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B MoE (OpenRouter 무료)</option>
-                <option value="openai/gpt-oss-120b:free">GPT-OSS 120B (OpenRouter 무료)</option>
+                <optgroup label="기타 무료 API">
+                  <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
+                </optgroup>
               </select>
             </div>
 
