@@ -119,10 +119,21 @@ export const streamChat = async (options: StreamChatOptions) => {
     let body: any = {};
 
     // 1. LM Studio 로컬 구동
+    // 1. LM Studio 로컬 구동
     if (isLocal) {
-      // 🌟 핸드폰으로 접속 시 노트북의 IP를 자동으로 따라가도록 수정
-      url = `http://${window.location.hostname}:1234/v1/chat/completions`;
+      // 🌟 Vercel 설정 창에 입력한 Ngrok 주소가 있으면 우선 적용하고, 없으면 기본 IP 사용
+      let baseUrl = options.settings?.lmStudioUrl?.replace(/\/+$/, "") || "";
+      if (!baseUrl) {
+        baseUrl = `http://${window.location.hostname}:1234`;
+      }
+      
+      url = `${baseUrl}/v1/chat/completions`;
       headers["Authorization"] = "Bearer not-needed";
+      
+      // 🌟 [핵심] 무료 Ngrok 사용 시 API 차단 경고창을 강제로 우회하는 특수 헤더
+      headers["ngrok-skip-browser-warning"] = "true";
+      headers["User-Agent"] = "Custom-Client"; // 일부 Ngrok 버전 우회용
+
       body = {
         model: selectedModel,
         messages: [{ role: "user", content: options.message }],
