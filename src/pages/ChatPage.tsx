@@ -536,21 +536,53 @@ const ChatPage = () => {
     }
   }, [isLoading, isGeneratingImage, messages, settings, addMessage]);
 
+  // 🌟 조연 정보 자동 추출 수정: streamChat 연동으로 다중 키 자동 순환 및 LM Studio 완벽 대응
   const handleExtractNPCs = async () => {
-    console.log("▶ 클릭됨. _npcQueue.length =", _npcQueue.length, "_npcIndex =", _npcIndex);
-    setIsExtracting(true);
-    const toastId = toast.loading("조연 찾는 중...");
+    if (messages.length === 0) {
+      toast.error("분석할 대화 기록이 없습니다.");
+      return;
+    }
 
-    console.log("[NPC] 호출됨 — 현재 큐 길이:", _npcQueue.length, "/ 인덱스:", _npcIndex);
+    setIsExtracting(true);
+    const toastId = toast.loading("최근 대화에서 조연을 분석하고 있습니다...");
 
     try {
       if (_npcQueue.length === 0) {
-        const history = messages.slice(-15).map(m => `${m.role}: ${m.content}`).join("\n");
-        const api = await import("@/lib/gemini-api");
-        const npcs = await api.extractCharactersFromHistory(history, settings.selectedModel, settings.geminiApiKey);
+        const history = messages.slice(-20).map(m => `${m.role === "assistant" ? "AI" : "User"}: ${m.content}`).join("\n");
 
-        if (!npcs || npcs.length === 0) {
-          toast.info("추출된 조연이 없습니다.", { id: toastId });
+        const prompt = `너는 역할극 전문 대화 분석가이다. 아래 최근 대화 기록을 읽고, 주연(${settings.charName})과 유저(${settings.myName || "유저"})를 제외한 '새로운 조연(엑스트라/NPC)'의 정보를 추출하라.
+반드시 아래 JSON 배열 형식으로만 대답하라. 설명이나 마크다운 텍스트를 절대 붙이지 마라.
+[{"name": "조연이름", "persona": "성격, 관계, 특징"}]
+만약 새로 추가할 조연이 전혀 없다면 빈 배열 [] 만 출력하라.
+
+[대화 기록]
+${history}
+
+JSON:`;
+
+        let rawResponse = "";
+        await streamChat({
+          message: prompt,
+          settings: settings,
+          onDelta: (delta) => { rawResponse += delta; },
+          onDone: () => {},
+          onError: (err) => { throw new Error(err); }
+        });
+
+        // JSON 추출 및 파싱
+        let cleaned = rawResponse.replace(/```json/gi, "").replace(/```/g, "").trim();
+        const jsonMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (jsonMatch) cleaned = jsonMatch[0];
+
+        let npcs: any[] = [];
+        try {
+          npcs = JSON.parse(cleaned);
+        } catch (e) {
+          npcs = [];
+        }
+
+        if (!Array.isArray(npcs) || npcs.length === 0) {
+          toast.info("최근 대화에서 새로 추가할 조연을 찾지 못했습니다.", { id: toastId });
           setIsExtracting(false);
           return;
         }
@@ -558,12 +590,9 @@ const ChatPage = () => {
         _npcQueue.length = 0;
         _npcQueue.push(...npcs);
         _npcIndex = 0;
-        console.log("[NPC] 새로 추출됨:", _npcQueue.map(n => n.name));
       }
 
       const target = _npcQueue[_npcIndex];
-      console.log("[NPC] 추가할 캐릭터:", target.name, `(${_npcIndex + 1}/${_npcQueue.length})`);
-
       addSupportingCharacter({
         name: target.name,
         persona: target.persona,
@@ -571,20 +600,18 @@ const ChatPage = () => {
         personal_memory: ""
       });
 
-      toast.success(`[${target.name}] 추가됨 (순번: ${_npcIndex + 1}/${_npcQueue.length})`, { id: toastId });
-
+      toast.success(`[${target.name}] 추가됨 (${_npcIndex + 1}/${_npcQueue.length}명)`, { id: toastId });
       _npcIndex = (_npcIndex + 1) % _npcQueue.length;
-      console.log("[NPC] 다음 인덱스:", _npcIndex);
 
     } catch (e: any) {
-      console.error(e);
-      toast.error(`추출 실패: ${e.message}`, { id: toastId });
+      console.error("조연 추출 오류:", e);
+      toast.error(`추출 실패: ${e.message || "오류가 발생했습니다."}`, { id: toastId });
     } finally {
       setIsExtracting(false);
     }
   };
 
-  // 🌟 새롭게 추가된 기능: 대화 기록을 분석하여 '영구적인 중대 설정'만 뽑아내어 노트에 누적 저장
+  // 🌟 대화 기록 정리 수정: 불필요한 사족 필터링 및 영구 기억 정제 누적 저장
   const handleExtractMemory = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("정리할 대화 기록이 없습니다.");
@@ -594,20 +621,19 @@ const ChatPage = () => {
     setIsExtractingMemory(true);
     const toastId = toast.loading("대화에서 중요한 영구 설정을 분석 중입니다...");
 
-    // 너무 길면 컨텍스트가 넘치므로 최근 30개 메시지 위주로 분석
     const history = messages.slice(-30).map(m => `${m.role === "assistant" ? settings.charName : (settings.myName || "유저")}: ${m.content}`).join("\n");
     
     const systemPrompt = `너는 역할극 대화 기록을 분석하여 '핵심 설정'을 기록하는 전문 서기다.
-유저와 캐릭터 간의 대화를 읽고, **영구적이고 중대한 변화나 설정(낙인처럼 새겨야 할 내용)**만 추출하라.
-- 포함할 예시: 신체 훼손(예: 팔이 잘림), 영구적인 외모 변화(염색, 흉터), 돌이킬 수 없는 중대한 사건, 아주 중요한 특수 아이템 획득.
-- 제외할 예시: "내일 만나자", "밥 먹자" 같은 일회성 약속, 사소한 감정 변화, 일상적인 대화.
+유저와 캐릭터 간의 대화를 읽고, **영구적이고 중대한 변화나 설정(낙인처럼 새겨야 할 내용)**만 요약하여 추출하라.
+- 포함할 내용: 신체 부상/결손, 영구적 외모 변화(흉터, 문신), 관계의 결정적 격변, 특수 아이템 획득, 사망/각성 등.
+- 제외할 내용: "내일 만나자" 같은 일회성 약속, 사소한 대화, 일시적인 기분.
 
-[현재 캐릭터의 기존 노트(기억) 내용]
-${settings.note || "없음"}
+[현재 주연의 기존 기억/노트]
+${settings.note || "기존 설정 없음"}
 
-위 대화 기록을 분석하여, '기존 노트'에 없는 **새로운 중대 설정**만 요약하라.
-기존 노트 내용 뒤에 자연스럽게 덧붙일 수 있도록 요약된 문장들만 작성하라.
-만약 새롭게 추가할 중대한 설정이 하나도 없다면, 반드시 "추가할 내용 없음" 이라고만 대답하라.`;
+위 대화 기록을 분석하여 기존 노트에 없는 **새로운 중대 사실**만 1~3문장의 짧은 개조식으로 요약하라.
+인사말이나 "분석 결과입니다" 같은 군더더기 말은 절대 하지 말고 요약 문장만 출력하라.
+만약 새롭게 추가할 중대한 설정이 하나도 없다면 반드시 "추가할 내용 없음" 이라고만 대답하라.`;
 
     const prompt = `${systemPrompt}\n\n[최근 대화 기록]\n${history}\n\n새로운 기억 요약:`;
 
@@ -620,13 +646,15 @@ ${settings.note || "없음"}
         onDone: async () => {
           toast.dismiss(toastId);
           setIsExtractingMemory(false);
-          const result = extraLine.trim();
+          
+          // <think> 태그나 불필요한 서두 제거 정제
+          let result = extraLine.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+          result = result.replace(/^(요약|결과|분석|새로운 기억 요약)\s*:\s*/i, "").trim();
           
           if (result === "" || result.includes("추가할 내용 없음")) {
             toast.info("새로 기억할 만한 중대한 설정 변화가 없습니다.");
           } else {
-            // 기존 노트 뒤에 새로운 기억을 줄바꿈하여 덧붙임
-            const newNote = settings.note ? `${settings.note}\n${result}` : result;
+            const newNote = settings.note ? `${settings.note}\n• ${result}` : `• ${result}`;
             await updateSettings({ ...settings, note: newNote });
             toast.success("중요한 대화 설정이 주연의 기억(노트)에 영구적으로 새겨졌습니다!");
           }
@@ -634,12 +662,13 @@ ${settings.note || "없음"}
         onError: (err) => {
           toast.dismiss(toastId);
           setIsExtractingMemory(false);
-          toast.error("대화 내용 분석 중 오류가 발생했습니다.");
+          toast.error(`대화 분석 실패: ${err}`);
         }
       });
-    } catch (e) {
+    } catch (e: any) {
       toast.dismiss(toastId);
       setIsExtractingMemory(false);
+      toast.error(e.message || "오류가 발생했습니다.");
     }
   }, [messages, settings, updateSettings]);
 

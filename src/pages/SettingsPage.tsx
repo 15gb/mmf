@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Save, LogOut, Trash2, Users, Plus, Trash, Key, Eye, EyeOff, ImageIcon, Eraser, Bot, Loader2, MessageSquare } from "lucide-react";
+import { ArrowLeft, Save, LogOut, Trash2, Plus, Trash, Key, Eye, EyeOff, Eraser, Bot, Loader2, MessageSquare } from "lucide-react";
 import { useSettings, useConversations, useMessages, type AppSettings, type SupportingCharacter, type ExtraApiKey } from "@/lib/store";
 import { useAuth } from "@/lib/auth-context";
 import { generateUUID } from "@/lib/utils";
@@ -8,7 +8,8 @@ import { toast } from "sonner";
 import ImageUploadField from "@/components/ImageUploadField";
 import CharacterSearch from "@/components/CharacterSearch";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
-import { searchWorld, extractCharactersFromHistory } from "@/lib/gemini-api";
+import { searchWorld } from "@/lib/gemini-api";
+import { streamChat } from "@/lib/chat-api";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,7 +22,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-// ✅ 모듈 스코프 — 리렌더링과 무관하게 유지
 const _extractedNpcs: { name: string; persona: string }[] = [];
 let _extractNpcIndex = 0;
 
@@ -78,7 +78,6 @@ const SettingsPage = () => {
   const [form, setForm] = useState<AppSettings>(settings);
   const [worldQuery, setWorldQuery] = useState("");
   const [isWorldSearching, setIsWorldSearching] = useState(false);
-  
   const [isExtractingId, setIsExtractingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -112,8 +111,7 @@ const SettingsPage = () => {
   };
 
   const handleAddApiKey = () => {
-    // ✅ 새 키 추가 시 OpenRouter를 기본값으로 변경
-    const newKey: ExtraApiKey = { id: generateUUID(), name: "OpenRouter", value: "" };
+    const newKey: ExtraApiKey = { id: generateUUID(), name: "Gemini", value: "" };
     update("extraApiKeys", [...form.extraApiKeys, newKey]);
   };
 
@@ -158,10 +156,7 @@ const SettingsPage = () => {
   };
 
   /**
-   * ✅ [수정] 모듈 스코프 _extractedNpcs / _extractNpcIndex 사용
-   * - 첫 클릭: API 호출 후 큐에 저장, 0번 인물 적용
-   * - 이후 클릭: API 재호출 없이 다음 인물 순환 적용
-   * - 큐를 다 쓰면 0번으로 돌아옴
+   * 조연 정보 추출: streamChat 기반 통합 처리 (Gemini 다중 키 자동 순환 및 LM Studio 완벽 지원)
    */
   const handleExtractNPC = async (charId: string) => {
     if (messages.length === 0) {
@@ -173,29 +168,51 @@ const SettingsPage = () => {
     const toastId = toast.loading("최근 대화에서 조연을 분석하고 있습니다...");
 
     try {
-      // 1. 큐가 비어있으면 API 호출
       if (_extractedNpcs.length === 0) {
-        const history = messages.slice(-15).map(m => `${m.role === "user" ? "User" : "AI"}: ${m.content}`).join("\n");
+        const history = messages.slice(-20).map(m => `${m.role === "user" ? "User" : "AI"}: ${m.content}`).join("\n");
 
-        const npcs = await extractCharactersFromHistory(
-          history,
-          form.selectedModel || "gemini-3.1-flash-lite",
-          form.geminiApiKey || ""
-        );
+        const prompt = `너는 대화 분석가이다. 아래 최근 대화 기록을 읽고, 주연(${form.charName})과 유저(${form.myName || "유저"})를 제외한 '새로운 조연(엑스트라/NPC)'을 찾아내라.
+반드시 아래 JSON 배열 포맷으로만 응답하라. 설명이나 마크다운은 붙이지 마라.
+[{"name": "조연이름", "persona": "조연설정 및 성격"}]
+발견된 조연이 전혀 없다면 반드시 [] 라고만 응답하라.
 
-        if (!npcs || npcs.length === 0) {
-          toast.info("최근 대화에서 새로운 조연 인물을 찾지 못했습니다.", { id: toastId });
+[대화 기록]
+${history}
+
+JSON:`;
+
+        let rawResponse = "";
+        await streamChat({
+          message: prompt,
+          settings: form,
+          onDelta: (delta) => { rawResponse += delta; },
+          onDone: () => {},
+          onError: (err) => { throw new Error(err); }
+        });
+
+        // 결과 정제 및 JSON 파싱
+        let cleaned = rawResponse.replace(/```json/gi, "").replace(/```/g, "").trim();
+        const jsonMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        if (jsonMatch) cleaned = jsonMatch[0];
+
+        let npcs: any[] = [];
+        try {
+          npcs = JSON.parse(cleaned);
+        } catch (e) {
+          npcs = [];
+        }
+
+        if (!Array.isArray(npcs) || npcs.length === 0) {
+          toast.info("최근 대화에서 새로운 조연을 찾지 못했습니다.", { id: toastId });
           setIsExtractingId(null);
           return;
         }
 
-        // 모듈 변수에 저장
         _extractedNpcs.length = 0;
         _extractedNpcs.push(...npcs);
         _extractNpcIndex = 0;
       }
 
-      // 2. 현재 인덱스 인물 적용
       const npc = _extractedNpcs[_extractNpcIndex];
       handleAutoFillSupporting(charId, { name: npc.name, persona: npc.persona });
 
@@ -204,12 +221,10 @@ const SettingsPage = () => {
         { id: toastId }
       );
 
-      // 3. 다음 인덱스로 (순환)
       _extractNpcIndex = (_extractNpcIndex + 1) % _extractedNpcs.length;
-
     } catch (error: any) {
-      console.error("추출 에러 상세:", error);
-      toast.error(`조연 추출 실패: ${error.message || "알 수 없는 에러가 발생했습니다."}`, { id: toastId });
+      console.error("추출 에러:", error);
+      toast.error(`조연 추출 실패: ${error.message || "알 수 없는 오류"}`, { id: toastId });
     } finally {
       setIsExtractingId(null);
     }
@@ -332,7 +347,6 @@ const SettingsPage = () => {
           <ImageUploadField label="채팅 배경 이미지" value={form.chatBackground} onChange={(v) => update("chatBackground", v)} hint="채팅방 전체 배경으로 적용됩니다" />
         </Section>
 
-        {/* 🌟 새로 추가된 답변 길이 설정 섹션 */}
         <Section title="답변 길이 설정">
           <p className="text-xs text-muted-foreground mb-2">AI가 한 번 대답할 때 생성할 대화 박스(말풍선) 갯수와 글자 수를 조절합니다.</p>
           <div className="grid grid-cols-2 gap-4">
@@ -374,11 +388,17 @@ const SettingsPage = () => {
                 <Bot size={16} className="text-primary" /> 사용할 AI 모델
               </label>
               <select
-                value={form.selectedModel || "gemini-3.5-flash"}
+                value={form.selectedModel || "local/qwen-14b"}
                 onChange={(e) => update("selectedModel", e.target.value)}
                 className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring border border-border"
               >
-                {/* 🌟 구글 Gemini 최신 라인업 추가 */}
+                {/* 🌟 LM Studio 로컬 구동 라인업 */}
+                <optgroup label="내 노트북 로컬 구동 (무검열 / 100% 무료)">
+                  <option value="local/qwen-14b">Qwen 2.5 14B Abliterated (LM Studio 로컬)</option>
+                  <option value="local/custom">기타 LM Studio에 로드된 모델 (localhost:1234)</option>
+                </optgroup>
+
+                {/* 🌟 Google Gemini 공식 API */}
                 <optgroup label="Google Gemini (공식 API)">
                   <option value="gemini-3.5-flash">Gemini 3.5 Flash (추천: 강력한 기억력)</option>
                   <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (빠른 속도)</option>
@@ -387,13 +407,10 @@ const SettingsPage = () => {
                   <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (구버전)</option>
                 </optgroup>
 
-                {/* 🌟 외부 무료 모델 라인업 유지 */}
                 <optgroup label="OpenRouter 무료 모델">
                   <option value="openrouter/free">OpenRouter (공식 무료 자동 선택)</option>
                   <option value="nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B</option>
-                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B</option>
                   <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B MoE</option>
-                  <option value="openai/gpt-oss-120b:free">GPT-OSS 120B</option>
                 </optgroup>
                 
                 <optgroup label="기타 무료 API">
@@ -406,18 +423,21 @@ const SettingsPage = () => {
               <label className="text-sm font-medium text-foreground flex items-center gap-2">
                 <Key size={16} className="text-primary" /> 기본 Gemini API Key
               </label>
-              <input 
-                type="password" 
+              <p className="text-[11px] text-muted-foreground">
+                키가 여러 개인 경우 **반점(,)**으로 구분해 입력하면 1번 키 소진 시 자동으로 2번, 3번 키로 전환됩니다.
+              </p>
+              <textarea 
                 value={form.geminiApiKey || ""} 
                 onChange={(e) => update("geminiApiKey", e.target.value)} 
-                placeholder="AIzaSy... (Gemini 전용)" 
-                className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" 
+                placeholder="AIzaSy...1, AIzaSy...2, AIzaSy...3" 
+                rows={2}
+                className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none font-mono text-xs" 
               />
             </div>
 
             <div className="space-y-3 pt-3 border-t border-border/30">
               <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                <Key size={16} className="text-muted-foreground" /> 외부 모델 API 키 추가
+                <Key size={16} className="text-muted-foreground" /> 외부 모델 / 추가 Gemini API 키
               </label>
               
               {form.extraApiKeys.map((apiKeyObj) => (
@@ -428,10 +448,11 @@ const SettingsPage = () => {
                       onChange={(e) => handleUpdateApiKey(apiKeyObj.id, "name", e.target.value)}
                       className="w-full rounded-md bg-background px-3 py-2 text-sm border border-border focus:outline-none focus:ring-2 focus:ring-ring"
                     >
+                      {/* 🌟 Gemini 대체 키 옵션 추가 */}
+                      <option value="Gemini">Gemini (추가/대체 키)</option>
                       <option value="Groq">Groq (Llama)</option>
                       <option value="Cohere">Cohere (Command R)</option>
                       <option value="GitHub">GitHub (GPT-5용)</option>
-                      {/* ✅ 새로 추가된 OpenRouter API 선택지 */}
                       <option value="OpenRouter">OpenRouter (무검열 무료)</option>
                     </select>
 
@@ -439,7 +460,7 @@ const SettingsPage = () => {
                       type="password" 
                       value={apiKeyObj.value} 
                       onChange={(e) => handleUpdateApiKey(apiKeyObj.id, "value", e.target.value)} 
-                      placeholder="실제 API 키 (sk-... 또는 ghp_...)" 
+                      placeholder="API 키 입력 (쉼표로 복수 입력 가능)" 
                       className="w-full rounded-md bg-background px-3 py-2 text-sm border border-border focus:outline-none focus:ring-2 focus:ring-ring" 
                     />
                   </div>
