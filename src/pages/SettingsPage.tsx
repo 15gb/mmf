@@ -348,16 +348,43 @@ JSON:`;
         </Section>
 
         <Section title="답변 길이 설정">
-          <p className="text-xs text-muted-foreground mb-2">AI가 한 번 대답할 때 생성할 대화 박스(말풍선) 갯수와 글자 수를 조절합니다.</p>
-          <div className="grid grid-cols-2 gap-4">
-            <Field type="number" label="나레이션 박스 수" value={(form as any).narrationCount || "3"} onChange={(v) => update("narrationCount" as any, v)} placeholder="예: 3" />
-            <Field type="number" label="박스당 글자 수" value={(form as any).narrationLength || "50"} onChange={(v) => update("narrationLength" as any, v)} placeholder="예: 50" />
-            
-            <Field type="number" label="주연 대사 박스 수" value={(form as any).mainCharCount || "2"} onChange={(v) => update("mainCharCount" as any, v)} placeholder="예: 2" />
-            <Field type="number" label="주연 박스당 글자 수" value={(form as any).mainCharLength || "30"} onChange={(v) => update("mainCharLength" as any, v)} placeholder="예: 30" />
-            
-            <Field type="number" label="조연 대사 박스 수" value={(form as any).extraCharCount || "2"} onChange={(v) => update("extraCharCount" as any, v)} placeholder="예: 2" />
-            <Field type="number" label="조연 박스당 글자 수" value={(form as any).extraCharLength || "30"} onChange={(v) => update("extraCharLength" as any, v)} placeholder="예: 30" />
+          <p className="text-xs text-muted-foreground mb-2">
+            AI가 한 번 대답할 때 생성할 박스 갯수와 글자 수 범위를 조절합니다. 상황에 맞춰 최소~최대 범위 내에서 유동적으로 조절합니다.
+          </p>
+          
+          <div className="space-y-4">
+            {/* 나레이션 설정 */}
+            <div className="p-3 bg-muted/30 border border-border rounded-xl space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">📝 나레이션 (상황 묘사)</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Field type="number" label="박스 갯수" value={(form as any).narrationCount || "3"} onChange={(v) => update("narrationCount" as any, v)} placeholder="예: 3" />
+                <Field type="number" label="최소 글자수" value={(form as any).narrationMinLength || "30"} onChange={(v) => update("narrationMinLength" as any, v)} placeholder="예: 30" />
+                <Field type="number" label="평균 글자수" value={(form as any).narrationLength || "50"} onChange={(v) => update("narrationLength" as any, v)} placeholder="예: 50" />
+                <Field type="number" label="최대 글자수" value={(form as any).narrationMaxLength || "100"} onChange={(v) => update("narrationMaxLength" as any, v)} placeholder="예: 100" />
+              </div>
+            </div>
+
+            {/* 주연 대사 설정 */}
+            <div className="p-3 bg-muted/30 border border-border rounded-xl space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">👑 주연 대사</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Field type="number" label="박스 갯수" value={(form as any).mainCharCount || "2"} onChange={(v) => update("mainCharCount" as any, v)} placeholder="예: 2" />
+                <Field type="number" label="최소 글자수" value={(form as any).mainCharMinLength || "10"} onChange={(v) => update("mainCharMinLength" as any, v)} placeholder="예: 10" />
+                <Field type="number" label="평균 글자수" value={(form as any).mainCharLength || "30"} onChange={(v) => update("mainCharLength" as any, v)} placeholder="예: 30" />
+                <Field type="number" label="최대 글자수" value={(form as any).mainCharMaxLength || "80"} onChange={(v) => update("mainCharMaxLength" as any, v)} placeholder="예: 80" />
+              </div>
+            </div>
+
+            {/* 조연 대사 설정 */}
+            <div className="p-3 bg-muted/30 border border-border rounded-xl space-y-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">👥 조연 대사</h3>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Field type="number" label="박스 갯수" value={(form as any).extraCharCount || "2"} onChange={(v) => update("extraCharCount" as any, v)} placeholder="예: 2" />
+                <Field type="number" label="최소 글자수" value={(form as any).extraCharMinLength || "10"} onChange={(v) => update("extraCharMinLength" as any, v)} placeholder="예: 10" />
+                <Field type="number" label="평균 글자수" value={(form as any).extraCharLength || "30"} onChange={(v) => update("extraCharLength" as any, v)} placeholder="예: 30" />
+                <Field type="number" label="최대 글자수" value={(form as any).extraCharMaxLength || "80"} onChange={(v) => update("extraCharMaxLength" as any, v)} placeholder="예: 80" />
+              </div>
+            </div>
           </div>
         </Section>
 

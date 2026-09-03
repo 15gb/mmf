@@ -158,10 +158,20 @@ const ChatMessageItem = React.memo(({ msg, settings, onContextMenu }: any) => {
           );
         }
 
+        // 🌟 이름 매칭 로직 개선: AI가 이름을 약간 다르게 출력(축약 등)하더라도 부분 일치하면 이미지를 띄움
         let avatarUrl = "";
-        if (block.name === settings.charName) avatarUrl = settings.charAvatar;
-        else {
-          const extra = settings.supportingCharacters?.find((c: any) => c.name === block.name);
+        const bName = block.name.trim();
+        const mainName = settings.charName.trim();
+        
+        // 주연 캐릭터 이미지 매칭
+        if (bName === mainName || mainName.includes(bName) || bName.includes(mainName)) {
+          avatarUrl = settings.charAvatar;
+        } else {
+          // 조연 캐릭터 이미지 매칭
+          const extra = settings.supportingCharacters?.find((c: any) => {
+            const eName = c.name.trim();
+            return bName === eName || eName.includes(bName) || bName.includes(eName);
+          });
           if (extra) avatarUrl = extra.avatar;
         }
 
@@ -404,13 +414,16 @@ const ChatPage = () => {
     }
     // 🌟 추가 끝 🌟
 
+    // 🌟 수정됨: TypeScript 에러 방지를 위해 settings 타입을 any로 잠시 우회하고 안전장치(?.) 추가
+    const s = settings as any; 
+
     systemPrompt += `[역할극 출력 형식 및 길이 제어 (매우 중요!)]
 1. 강제 규칙: 각 캐릭터의 성격에 맞게 대답하라.
-2. 🌟 길이 및 구조 제어 (반드시 아래의 박스 갯수와 글자 수를 준수할 것):
-   - 나레이션(상황 묘사/배경 설명): 한 번의 답변에서 약 ${settings.narrationCount || 3}개의 문단(박스)으로 나누어 출력하고, 각 문단은 대략 ${settings.narrationLength || 50}자 내외로 작성하라.
-   - 주연(${settings.charName}) 대사: 한 번의 답변에서 약 ${settings.mainCharCount || 2}개의 말풍선(박스)으로 나누어 출력하고, 각 대사는 대략 ${settings.mainCharLength || 30}자 내외로 작성하라.
-   - 조연 대사: 한 번의 답변에서 조연이 나설 경우 약 ${settings.extraCharCount || 2}개의 말풍선(박스)으로 나누어 출력하고, 각 대사는 대략 ${settings.extraCharLength || 30}자 내외로 작성하라.
-   (현재 설정된 추가 노트/기억 내용: ${settings.note || '없음'})
+2. 🌟 길이 및 구조 제어 (대화 내용과 상황에 맞게 글자 수를 유동적으로 조절할 것):
+   - 나레이션(상황 묘사/배경 설명): 한 번의 답변에서 약 ${s.narrationCount || 3}개의 문단(박스)으로 나누어 출력하라. 길이는 상황에 따라 최소 ${s.narrationMinLength || 30}자에서 최대 ${s.narrationMaxLength || 100}자 사이로 작성하되, 평균적으로 ${s.narrationLength || 50}자 내외를 유지하라.
+   - 주연(${settings?.charName || '캐릭터'}) 대사: 한 번의 답변에서 약 ${s.mainCharCount || 2}개의 말풍선(박스)으로 나누어 출력하라. 대사는 최소 ${s.mainCharMinLength || 10}자에서 최대 ${s.mainCharMaxLength || 80}자 사이로, 평균 ${s.mainCharLength || 30}자 내외가 되도록 하라. 단답형이 필요할 땐 짧게, 길게 말할 땐 길게 변주를 주어라.
+   - 조연 대사: 조연이 나설 경우 약 ${s.extraCharCount || 2}개의 말풍선(박스)으로 나누어 출력하라. 대사는 최소 ${s.extraCharMinLength || 10}자에서 최대 ${s.extraCharMaxLength || 80}자 사이, 평균 ${s.extraCharLength || 30}자 내외로 상황에 맞게 조절하라.
+   (현재 설정된 추가 노트/기억 내용: ${settings?.note || '없음'})
 3. 대화 블록 분리: **모든 대사 앞에는 반드시 화자의 이름을 명시해야 한다.** 절대 화자 이름 없이 따옴표만 출력하지 마라. (형식: **[캐릭터명]** "대사 내용")
 4. 대사/행동 분리: 대사 중간이나 앞뒤의 행동/감정 묘사는 별표(*) 또는 괄호()로 감싸라. (예: **[레나]** (조심스레 일어서며) "고기 좋아해요.")
 5. 나레이션 분리: 누구의 대사도 아닌 순수 배경 묘사, 상황 설명, 시간 경과 등은 캐릭터명이나 따옴표 없이 줄을 바꾸어 작성하라. (만약 시스템 메시지라면 **[시스템]** 이라고 표기하라)
@@ -612,6 +625,7 @@ JSON:`;
   };
 
   // 🌟 대화 기록 정리 수정: 불필요한 사족 필터링 및 영구 기억 정제 누적 저장
+  // 🌟 대화 기록 정리 수정: 중대 설정뿐만 아니라 전반적인 대화/행동 요약을 통해 AI 기억력 향상
   const handleExtractMemory = useCallback(async () => {
     if (messages.length === 0) {
       toast.error("정리할 대화 기록이 없습니다.");
@@ -619,23 +633,22 @@ JSON:`;
     }
 
     setIsExtractingMemory(true);
-    const toastId = toast.loading("대화에서 중요한 영구 설정을 분석 중입니다...");
+    const toastId = toast.loading("최근 대화를 요약하여 기억에 저장 중입니다...");
 
     const history = messages.slice(-30).map(m => `${m.role === "assistant" ? settings.charName : (settings.myName || "유저")}: ${m.content}`).join("\n");
     
-    const systemPrompt = `너는 역할극 대화 기록을 분석하여 '핵심 설정'을 기록하는 전문 서기다.
-유저와 캐릭터 간의 대화를 읽고, **영구적이고 중대한 변화나 설정(낙인처럼 새겨야 할 내용)**만 요약하여 추출하라.
-- 포함할 내용: 신체 부상/결손, 영구적 외모 변화(흉터, 문신), 관계의 결정적 격변, 특수 아이템 획득, 사망/각성 등.
-- 제외할 내용: "내일 만나자" 같은 일회성 약속, 사소한 대화, 일시적인 기분.
+    const systemPrompt = `너는 역할극 대화 기록을 요약하여 캐릭터의 '장기 기억(노트)'을 작성하는 전문 서기다.
+유저와 캐릭터 간의 대화를 읽고, 지금까지 어떤 대화를 나눴으며 무슨 행동을 했는지 핵심만 짧게 개조식으로 요약하라.
+- 목적: AI가 과거 문맥을 잊지 않고 자연스럽게 다음 대화를 이어가기 위한 기억력 향상.
+- 포함할 내용: 주요 대화 주제, 이동한 장소, 캐릭터들의 감정 변화, 중요한 행동 및 결정.
 
 [현재 주연의 기존 기억/노트]
 ${settings.note || "기존 설정 없음"}
 
-위 대화 기록을 분석하여 기존 노트에 없는 **새로운 중대 사실**만 1~3문장의 짧은 개조식으로 요약하라.
-인사말이나 "분석 결과입니다" 같은 군더더기 말은 절대 하지 말고 요약 문장만 출력하라.
-만약 새롭게 추가할 중대한 설정이 하나도 없다면 반드시 "추가할 내용 없음" 이라고만 대답하라.`;
+위 대화 기록을 분석하여 기존 노트에 없는 **새로운 대화 내용과 진행 상황**만 1~3문장의 짧은 개조식으로 요약하라.
+인사말이나 "분석 결과입니다" 같은 군더더기 말은 절대 하지 말고 요약 문장만 출력하라.`;
 
-    const prompt = `${systemPrompt}\n\n[최근 대화 기록]\n${history}\n\n새로운 기억 요약:`;
+    const prompt = `${systemPrompt}\n\n[최근 대화 기록]\n${history}\n\n새로운 대화 요약:`;
 
     let extraLine = "";
     try {
@@ -649,20 +662,20 @@ ${settings.note || "기존 설정 없음"}
           
           // <think> 태그나 불필요한 서두 제거 정제
           let result = extraLine.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-          result = result.replace(/^(요약|결과|분석|새로운 기억 요약)\s*:\s*/i, "").trim();
+          result = result.replace(/^(요약|결과|분석|새로운 대화 요약)\s*:\s*/i, "").trim();
           
-          if (result === "" || result.includes("추가할 내용 없음")) {
-            toast.info("새로 기억할 만한 중대한 설정 변화가 없습니다.");
+          if (result === "") {
+            toast.info("요약할 내용이 부족합니다.");
           } else {
             const newNote = settings.note ? `${settings.note}\n• ${result}` : `• ${result}`;
             await updateSettings({ ...settings, note: newNote });
-            toast.success("중요한 대화 설정이 주연의 기억(노트)에 영구적으로 새겨졌습니다!");
+            toast.success("최근 대화 내용이 주연의 기억(노트)에 성공적으로 저장되었습니다!");
           }
         },
         onError: (err) => {
           toast.dismiss(toastId);
           setIsExtractingMemory(false);
-          toast.error(`대화 분석 실패: ${err}`);
+          toast.error(`대화 요약 실패: ${err}`);
         }
       });
     } catch (e: any) {
@@ -671,7 +684,6 @@ ${settings.note || "기존 설정 없음"}
       toast.error(e.message || "오류가 발생했습니다.");
     }
   }, [messages, settings, updateSettings]);
-
   const saveMemory = async () => {
     if (!memoryModal) return;
     if (memoryModal.id === "MAIN") {
