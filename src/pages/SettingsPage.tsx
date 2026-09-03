@@ -419,6 +419,25 @@ JSON:`;
               </select>
             </div>
 
+            {/* 🌟 [추가됨] Vercel 접속용 LM Studio 외부 주소 입력칸 (로컬 모델 선택 시에만 등장) */}
+            {form.selectedModel?.includes("local") && (
+              <div className="space-y-2 pb-2 mt-3 p-3 bg-primary/5 border border-primary/20 rounded-xl">
+                <label className="text-sm font-medium text-foreground flex items-center gap-2">
+                  🌐 외부 접속용 LM Studio 주소 (Vercel 환경 필수)
+                </label>
+                <p className="text-[11px] text-muted-foreground">
+                  Vercel 앱에서 노트북의 AI를 쓰려면 Ngrok 등으로 생성한 <b>https://</b> 주소가 필요합니다. (미입력 시 기본 localhost 사용)
+                </p>
+                <input 
+                  type="text" 
+                  value={(form as any).lmStudioUrl || ""} 
+                  onChange={(e) => update("lmStudioUrl" as any, e.target.value)} 
+                  placeholder="예: https://intercatenated-contractedly-adela.ngrok-free.dev" 
+                  className="w-full rounded-lg bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 border border-border" 
+                />
+              </div>
+            )}
+
             <div className="space-y-2 pb-2">
               <label className="text-sm font-medium text-foreground flex items-center gap-2">
                 <Key size={16} className="text-primary" /> 기본 Gemini API Key
