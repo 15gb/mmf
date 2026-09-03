@@ -120,7 +120,8 @@ export const streamChat = async (options: StreamChatOptions) => {
 
     // 1. LM Studio 로컬 구동
     if (isLocal) {
-      url = "http://localhost:1234/v1/chat/completions";
+      // 🌟 핸드폰으로 접속 시 노트북의 IP를 자동으로 따라가도록 수정
+      url = `http://${window.location.hostname}:1234/v1/chat/completions`;
       headers["Authorization"] = "Bearer not-needed";
       body = {
         model: selectedModel,
