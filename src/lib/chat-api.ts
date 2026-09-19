@@ -119,7 +119,6 @@ export const streamChat = async (options: StreamChatOptions) => {
     let body: any = {};
 
     // 1. LM Studio 로컬 구동
-    // 1. LM Studio 로컬 구동
     if (isLocal) {
       // 🌟 Vercel 설정 창에 입력한 Ngrok 주소가 있으면 우선 적용하고, 없으면 기본 IP 사용
       let baseUrl = options.settings?.lmStudioUrl?.replace(/\/+$/, "") || "";
@@ -132,10 +131,27 @@ export const streamChat = async (options: StreamChatOptions) => {
       
       // 🌟 [핵심] 무료 Ngrok 사용 시 API 차단 경고창을 강제로 우회하는 특수 헤더
       headers["ngrok-skip-browser-warning"] = "true";
-      headers["User-Agent"] = "Custom-Client"; // 일부 Ngrok 버전 우회용
+      headers["User-Agent"] = "Custom-Client";
+
+      // 🌟 [추가된 핵심 기능] LM Studio에 현재 켜져 있는 진짜 모델 이름을 자동으로 알아내기
+      let targetModel = selectedModel;
+      try {
+        const modelCheck = await fetch(`${baseUrl}/v1/models`, {
+          headers: { "ngrok-skip-browser-warning": "true" }
+        });
+        if (modelCheck.ok) {
+          const modelData = await modelCheck.json();
+          // LM Studio가 알려준 실제 모델 리스트가 있다면 첫 번째(현재 로드된) 모델 진짜 ID를 가로채서 사용
+          if (modelData?.data && modelData.data.length > 0) {
+            targetModel = modelData.data[0].id;
+          }
+        }
+      } catch (e) {
+        console.warn("모델 자동 감지 실패, 안전을 위해 기본값 사용");
+      }
 
       body = {
-        model: selectedModel,
+        model: targetModel, // 🌟 이제 "local/custom" 같은 가짜 이름이 아니라 진짜 이름이 들어갑니다!
         messages: [{ role: "user", content: options.message }],
         temperature: 0.8,
         top_p: 0.9,
