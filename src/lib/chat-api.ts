@@ -76,13 +76,13 @@ export const streamChat = async (options: StreamChatOptions) => {
     }
   }
 
-  // 모델 분류 판별
-  const isLocal = selectedModel.includes("local") || selectedModel.includes("qwen") || selectedModel.includes("lmstudio");
-  const isGemini = !isLocal && selectedModel.includes("gemini");
-  const isGroq = !isLocal && selectedModel.includes("llama");
-  const isCohere = !isLocal && selectedModel.includes("command");
-  const isGitHub = !isLocal && (selectedModel.includes("gpt") || selectedModel.includes("openai"));
-  const isOpenRouter = !isLocal && (selectedModel.includes(":free") || selectedModel.includes("mythomist") || selectedModel.includes("openrouter") || selectedModel.includes("nvidia") || selectedModel.includes("gemma"));
+  // 모델 분류 판별 (우선순위 및 버그 수정)
+  const isOpenRouter = selectedModel.includes(":free") || selectedModel.includes("openrouter") || selectedModel.includes("nvidia") || selectedModel.includes("gemma") || selectedModel.includes("z-ai");
+  const isLocal = !isOpenRouter && (selectedModel.includes("local") || selectedModel.includes("lmstudio"));
+  const isGemini = !isLocal && !isOpenRouter && selectedModel.includes("gemini");
+  const isGroq = !isLocal && !isOpenRouter && selectedModel.includes("llama");
+  const isCohere = !isLocal && !isOpenRouter && selectedModel.includes("command");
+  const isGitHub = !isLocal && !isOpenRouter && (selectedModel.includes("gpt") || selectedModel.includes("openai"));
 
   // API 키 할당
   let geminiPool: string[] = [];
