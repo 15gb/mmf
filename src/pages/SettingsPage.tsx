@@ -434,10 +434,13 @@ JSON:`;
                   <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (구버전)</option>
                 </optgroup>
 
-                <optgroup label="OpenRouter 무료 모델">
-                  <option value="openrouter/free">OpenRouter (공식 무료 자동 선택)</option>
-                  <option value="nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super 120B</option>
-                  <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B MoE</option>
+                {/* 🌟 2026년 9월 기준 실제 작동하는 OpenRouter 무료 모델 목록 */}
+                <optgroup label="OpenRouter 무료 모델 (다크 판타지 추천)">
+                  <option value="qwen/qwen3.8-27b:free">Qwen 3.8 27B (27B 압도적 필력 / API 구동)</option>
+                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (초거대 지능)</option>
+                  <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B (소설급 감성 묘사)</option>
+                  <option value="z-ai/glm-5.2:free">GLM 5.2 (밸런스형)</option>
+                  <option value="openrouter/free">OpenRouter (랜덤 자동 선택)</option>
                 </optgroup>
                 
                 <optgroup label="기타 무료 API">
