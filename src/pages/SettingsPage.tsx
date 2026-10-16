@@ -114,7 +114,8 @@ const SettingsPage = () => {
     const selected = form.selectedModel || "gemini-3.5-flash";
     const providerName = selected.startsWith("groq/") || selected.startsWith("llama-")
       ? "Groq"
-      : selected.startsWith("nvidia/") || selected.startsWith("openrouter/") || selected.includes(":free")
+      : selected.startsWith("nvidia/") || selected.startsWith("openrouter/") ||
+        selected.startsWith("qwen/") || selected.startsWith("z-ai/") || selected.includes(":free")
         ? "OpenRouter"
         : "Gemini";
     const newKey: ExtraApiKey = { id: generateUUID(), name: providerName, value: "" };
@@ -431,19 +432,21 @@ JSON:`;
                   <option value="local/custom">기타 LM Studio에 로드된 모델</option>
                 </optgroup>
 
-                <optgroup label="Google Gemini (작동 확인된 모델)">
+                <optgroup label="Google Gemini API (Google AI Studio 키)">
                   <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+                  <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+                  <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+                  <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                  <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
                 </optgroup>
 
-                <optgroup label="OpenRouter 무료 모델">
-                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (기존 연결)</option>
+                <optgroup label="OpenRouter 무료 모델 (OpenRouter API 키 필요)">
+                  <option value="qwen/qwen3.8-27b:free">Qwen 3.8 27B (무료)</option>
+                  <option value="qwen/qwen3-30b-a3b:free">Qwen 3 30B A3B (무료 대체)</option>
+                  <option value="z-ai/glm-5.3-flash:free">GLM 5.3 Flash (무료)</option>
+                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (무료)</option>
                   <option value="nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (무료, 빠른 처리)</option>
-                  <option value="openrouter/free">OpenRouter Free (사용 가능한 무료 모델 자동 선택)</option>
-                </optgroup>
-
-                <optgroup label="Groq API 모델 (별도 Groq API 키 필요)">
-                  <option value="groq/openai/gpt-oss-120b">GPT-OSS 120B (Groq)</option>
-                  <option value="groq/openai/gpt-oss-20b">GPT-OSS 20B (Groq, 빠른 응답)</option>
                 </optgroup>
               </select>
             </div>
@@ -472,7 +475,7 @@ JSON:`;
                 <Key size={16} className="text-primary" /> 기본 Gemini API Key
               </label>
               <p className="text-[11px] text-muted-foreground">
-                Gemini API 키 전용 칸입니다. 여러 키는 쉼표 또는 줄바꿈으로 구분하세요. Groq와 OpenRouter 키는 아래에서 제공자별로 추가하세요.
+                Google AI Studio Gemini API 키 전용 칸입니다. 여러 키는 쉼표 또는 줄바꿈으로 구분하세요. Qwen, GLM, Nemotron은 아래에서 OpenRouter 키를 추가해 사용하세요.
               </p>
               <textarea 
                 value={form.geminiApiKey || ""} 
@@ -498,8 +501,8 @@ JSON:`;
                     >
                       {/* 🌟 Gemini 대체 키 옵션 추가 */}
                       <option value="Gemini">Gemini (추가/대체 키)</option>
-                      <option value="Groq">Groq (GPT-OSS / Llama)</option>
-                      <option value="OpenRouter">OpenRouter (Nemotron / 무료 모델)</option>
+                      <option value="Groq">Groq (기존 설정 호환)</option>
+                      <option value="OpenRouter">OpenRouter (Qwen / GLM / Nemotron 무료 모델)</option>
                       <option value="Cohere">Cohere (기존 호환)</option>
                       <option value="GitHub">GitHub Models (기존 호환)</option>
                     </select>
