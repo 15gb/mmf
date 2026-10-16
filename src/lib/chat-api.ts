@@ -76,13 +76,22 @@ export const streamChat = async (options: StreamChatOptions) => {
     }
   }
 
-  // 모델 분류 판별 (우선순위 및 버그 수정)
-  const isOpenRouter = selectedModel.includes(":free") || selectedModel.includes("openrouter") || selectedModel.includes("nvidia") || selectedModel.includes("gemma") || selectedModel.includes("z-ai");
-  const isLocal = !isOpenRouter && (selectedModel.includes("local") || selectedModel.includes("lmstudio"));
-  const isGemini = !isLocal && !isOpenRouter && selectedModel.includes("gemini");
-  const isGroq = !isLocal && !isOpenRouter && selectedModel.includes("llama");
-  const isCohere = !isLocal && !isOpenRouter && selectedModel.includes("command");
-  const isGitHub = !isLocal && !isOpenRouter && (selectedModel.includes("gpt") || selectedModel.includes("openai"));
+  // 제공자 판별: 모델명 일부 단어에 의존하지 않고 명시적인 접두사/모델 ID로 판별
+  // groq/openai/... 는 Groq API의 openai/... 모델 ID를 의미합니다.
+  const isLocal = selectedModel.startsWith("local/") || selectedModel.includes("lmstudio");
+  const isGemini = !isLocal && selectedModel.startsWith("gemini-");
+  const isGroq = !isLocal && (selectedModel.startsWith("groq/") || selectedModel.startsWith("llama-"));
+  const isOpenRouter = !isLocal && !isGemini && !isGroq && (
+    selectedModel === "openrouter/free" ||
+    selectedModel.includes(":free") ||
+    selectedModel.startsWith("nvidia/") ||
+    selectedModel.startsWith("qwen/") ||
+    selectedModel.startsWith("google/") ||
+    selectedModel.startsWith("z-ai/") ||
+    selectedModel.startsWith("openrouter/")
+  );
+  const isCohere = !isLocal && !isGemini && !isGroq && !isOpenRouter && selectedModel.includes("command");
+  const isGitHub = !isLocal && !isGemini && !isGroq && !isOpenRouter && (selectedModel.includes("github/") || selectedModel.includes("gpt"));
 
   // API 키 할당
   let geminiPool: string[] = [];
@@ -92,16 +101,16 @@ export const streamChat = async (options: StreamChatOptions) => {
     geminiPool = getGeminiKeyPool(options.settings);
     currentApiKey = geminiPool[0] || "";
   } else if (isGroq) {
-    const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("groq") || k.name.toLowerCase().includes("llama"));
+    const keyObj = extraApiKeys.find(k => (k.name || "").toLowerCase().includes("groq"));
     currentApiKey = keyObj?.value || "";
   } else if (isCohere) {
-    const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("cohere") || k.name.toLowerCase().includes("command"));
+    const keyObj = extraApiKeys.find(k => (k.name || "").toLowerCase().includes("cohere") || (k.name || "").toLowerCase().includes("command"));
     currentApiKey = keyObj?.value || "";
   } else if (isGitHub) {
-    const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("github") || k.name.toLowerCase().includes("gpt"));
+    const keyObj = extraApiKeys.find(k => (k.name || "").toLowerCase().includes("github") || (k.name || "").toLowerCase().includes("gpt"));
     currentApiKey = keyObj?.value || "";
   } else if (isOpenRouter) {
-    const keyObj = extraApiKeys.find(k => k.name.toLowerCase().includes("openrouter"));
+    const keyObj = extraApiKeys.find(k => (k.name || "").toLowerCase().includes("openrouter"));
     currentApiKey = keyObj?.value || "";
   }
 
@@ -181,8 +190,9 @@ export const streamChat = async (options: StreamChatOptions) => {
     else if (isGroq) {
       url = "https://api.groq.com/openai/v1/chat/completions";
       headers["Authorization"] = `Bearer ${key}`;
+      const groqModel = selectedModel.startsWith("groq/") ? selectedModel.slice("groq/".length) : selectedModel;
       body = {
-        model: "llama-3.3-70b-versatile",
+        model: groqModel,
         messages: [{ role: "user", content: options.message }],
         temperature: 0.9,
         top_p: 0.95,

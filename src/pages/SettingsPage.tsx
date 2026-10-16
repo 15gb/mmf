@@ -111,7 +111,13 @@ const SettingsPage = () => {
   };
 
   const handleAddApiKey = () => {
-    const newKey: ExtraApiKey = { id: generateUUID(), name: "Gemini", value: "" };
+    const selected = form.selectedModel || "gemini-3.5-flash";
+    const providerName = selected.startsWith("groq/") || selected.startsWith("llama-")
+      ? "Groq"
+      : selected.startsWith("nvidia/") || selected.startsWith("openrouter/") || selected.includes(":free")
+        ? "OpenRouter"
+        : "Gemini";
+    const newKey: ExtraApiKey = { id: generateUUID(), name: providerName, value: "" };
     update("extraApiKeys", [...form.extraApiKeys, newKey]);
   };
 
@@ -419,32 +425,25 @@ JSON:`;
                 onChange={(e) => update("selectedModel", e.target.value)}
                 className="w-full rounded-lg bg-muted px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring border border-border"
               >
-                {/* 🌟 LM Studio 로컬 구동 라인업 */}
-                <optgroup label="내 노트북 로컬 구동 (무검열 / 100% 무료)">
+                {/* 작동 확인된 기존 연결은 유지 */}
+                <optgroup label="내 노트북 로컬 구동 (LM Studio)">
                   <option value="local/qwen-14b">Qwen 2.5 14B Abliterated (LM Studio 로컬)</option>
-                  <option value="local/custom">기타 LM Studio에 로드된 모델 (localhost:1234)</option>
+                  <option value="local/custom">기타 LM Studio에 로드된 모델</option>
                 </optgroup>
 
-                {/* 🌟 Google Gemini 공식 API */}
-                <optgroup label="Google Gemini (공식 API)">
-                  <option value="gemini-3.5-flash">Gemini 3.5 Flash (추천: 강력한 기억력)</option>
-                  <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash Lite (빠른 속도)</option>
-                  <option value="gemini-3.6-flash">Gemini 3.6 Flash (최신 테스트)</option>
-                  <option value="gemini-3.7-flash">Gemini 3.7 Flash (최신 테스트)</option>
-                  <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite (구버전)</option>
+                <optgroup label="Google Gemini (작동 확인된 모델)">
+                  <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
                 </optgroup>
 
-                {/* 🌟 2026년 9월 기준 실제 작동하는 OpenRouter 무료 모델 목록 */}
-                <optgroup label="OpenRouter 무료 모델 (다크 판타지 추천)">
-                  <option value="qwen/qwen3.8-27b:free">Qwen 3.8 27B (27B 압도적 필력 / API 구동)</option>
-                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (초거대 지능)</option>
-                  <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B (소설급 감성 묘사)</option>
-                  <option value="z-ai/glm-5.2:free">GLM 5.2 (밸런스형)</option>
-                  <option value="openrouter/free">OpenRouter (랜덤 자동 선택)</option>
+                <optgroup label="OpenRouter 무료 모델">
+                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (기존 연결)</option>
+                  <option value="nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (무료, 빠른 처리)</option>
+                  <option value="openrouter/free">OpenRouter Free (사용 가능한 무료 모델 자동 선택)</option>
                 </optgroup>
-                
-                <optgroup label="기타 무료 API">
-                  <option value="llama-3.3-70b-versatile">Llama 3.3 70B (Groq 무료)</option>
+
+                <optgroup label="Groq API 모델 (별도 Groq API 키 필요)">
+                  <option value="groq/openai/gpt-oss-120b">GPT-OSS 120B (Groq)</option>
+                  <option value="groq/openai/gpt-oss-20b">GPT-OSS 20B (Groq, 빠른 응답)</option>
                 </optgroup>
               </select>
             </div>
@@ -473,7 +472,7 @@ JSON:`;
                 <Key size={16} className="text-primary" /> 기본 Gemini API Key
               </label>
               <p className="text-[11px] text-muted-foreground">
-                키가 여러 개인 경우 **반점(,)**으로 구분해 입력하면 1번 키 소진 시 자동으로 2번, 3번 키로 전환됩니다.
+                Gemini API 키 전용 칸입니다. 여러 키는 쉼표 또는 줄바꿈으로 구분하세요. Groq와 OpenRouter 키는 아래에서 제공자별로 추가하세요.
               </p>
               <textarea 
                 value={form.geminiApiKey || ""} 
@@ -486,7 +485,7 @@ JSON:`;
 
             <div className="space-y-3 pt-3 border-t border-border/30">
               <label className="text-sm font-medium text-foreground flex items-center gap-2">
-                <Key size={16} className="text-muted-foreground" /> 외부 모델 / 추가 Gemini API 키
+                <Key size={16} className="text-muted-foreground" /> API 키 관리 (모델 제공자별)
               </label>
               
               {form.extraApiKeys.map((apiKeyObj) => (
@@ -499,17 +498,17 @@ JSON:`;
                     >
                       {/* 🌟 Gemini 대체 키 옵션 추가 */}
                       <option value="Gemini">Gemini (추가/대체 키)</option>
-                      <option value="Groq">Groq (Llama)</option>
-                      <option value="Cohere">Cohere (Command R)</option>
-                      <option value="GitHub">GitHub (GPT-5용)</option>
-                      <option value="OpenRouter">OpenRouter (무검열 무료)</option>
+                      <option value="Groq">Groq (GPT-OSS / Llama)</option>
+                      <option value="OpenRouter">OpenRouter (Nemotron / 무료 모델)</option>
+                      <option value="Cohere">Cohere (기존 호환)</option>
+                      <option value="GitHub">GitHub Models (기존 호환)</option>
                     </select>
 
                     <input 
                       type="password" 
                       value={apiKeyObj.value} 
                       onChange={(e) => handleUpdateApiKey(apiKeyObj.id, "value", e.target.value)} 
-                      placeholder="API 키 입력 (쉼표로 복수 입력 가능)" 
+                      placeholder={apiKeyObj.name === "Groq" ? "Groq API 키 (gsk_...)" : apiKeyObj.name === "OpenRouter" ? "OpenRouter API 키 (sk-or-v1-...)" : apiKeyObj.name === "Gemini" ? "Gemini API 키 (AIza...)" : "API 키 입력"} 
                       className="w-full rounded-md bg-background px-3 py-2 text-sm border border-border focus:outline-none focus:ring-2 focus:ring-ring" 
                     />
                   </div>
