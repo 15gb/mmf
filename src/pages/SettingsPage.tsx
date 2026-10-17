@@ -443,7 +443,6 @@ JSON:`;
 
                 <optgroup label="OpenRouter 무료 모델 (OpenRouter API 키 필요)">
                   <option value="qwen/qwen3.8-27b:free">Qwen 3.8 27B (무료)</option>
-                  <option value="qwen/qwen3-30b-a3b:free">Qwen 3 30B A3B (무료 대체)</option>
                   <option value="z-ai/glm-5.3-flash:free">GLM 5.3 Flash (무료)</option>
                   <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (무료)</option>
                   <option value="nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (무료, 빠른 처리)</option>
