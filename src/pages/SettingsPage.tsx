@@ -441,11 +441,14 @@ JSON:`;
                   <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
                 </optgroup>
 
-                <optgroup label="OpenRouter 무료 모델 (OpenRouter API 키 필요)">
-                  <option value="qwen/qwen3.8-27b:free">Qwen 3.8 27B (무료)</option>
-                  <option value="z-ai/glm-5.3-flash:free">GLM 5.3 Flash (무료)</option>
-                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (무료)</option>
-                  <option value="nvidia/nemotron-3.5-lightning:free">Nemotron 3.5 Lightning (무료, 빠른 처리)</option>
+                <optgroup label="OpenRouter 무료 채팅 모델 (OpenRouter API 키 필요)">
+                  <option value="google/gemma-4-31b-it:free">Gemma 4 31B (무료, 대화 품질 우선 후보)</option>
+                  <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B A4B (무료, 속도·품질 균형)</option>
+                  <option value="nvidia/nemotron-3-super-120b-a12b:free">Nemotron 3 Super (무료, 복잡한 설정·추론)</option>
+                  <option value="nvidia/nemotron-3-ultra-550b-a55b:free">Nemotron 3 Ultra 550B (초거대 지능)</option>
+                  <option value="nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free">Nemotron 3 Nano Omni (무료, 멀티모달)</option>
+                  <option value="cohere/north-mini-code:free">Cohere North Mini Code (무료, 코딩 중심)</option>
+                  <option value="poolside/laguna-xs-2.1:free">Poolside Laguna XS 2.1 (무료, 코딩 중심 · 10/31 종료 예정)</option>
                 </optgroup>
               </select>
             </div>
@@ -474,7 +477,7 @@ JSON:`;
                 <Key size={16} className="text-primary" /> 기본 Gemini API Key
               </label>
               <p className="text-[11px] text-muted-foreground">
-                Google AI Studio Gemini API 키 전용 칸입니다. 여러 키는 쉼표 또는 줄바꿈으로 구분하세요. Qwen, GLM, Nemotron은 아래에서 OpenRouter 키를 추가해 사용하세요.
+                Google AI Studio Gemini API 키 전용 칸입니다. 여러 키는 쉼표 또는 줄바꿈으로 구분하세요. 아래 OpenRouter 무료 모델은 API 키 관리에서 OpenRouter 키를 등록해 사용하세요.
               </p>
               <textarea 
                 value={form.geminiApiKey || ""} 
@@ -501,7 +504,7 @@ JSON:`;
                       {/* 🌟 Gemini 대체 키 옵션 추가 */}
                       <option value="Gemini">Gemini (추가/대체 키)</option>
                       <option value="Groq">Groq (기존 설정 호환)</option>
-                      <option value="OpenRouter">OpenRouter (Qwen / GLM / Nemotron 무료 모델)</option>
+                      <option value="OpenRouter">OpenRouter (무료 채팅 모델)</option>
                       <option value="Cohere">Cohere (기존 호환)</option>
                       <option value="GitHub">GitHub Models (기존 호환)</option>
                     </select>
